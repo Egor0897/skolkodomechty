@@ -1,0 +1,91 @@
+<!doctype html>
+<html lang="ru">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Курсы валют ЦБ и криптовалют онлайн — SDM</title>
+  <meta name="description" content="Курс доллара, евро и юаня от Банка России и цены биткоина, эфира, TON в прямом эфире. Пересчитайте цену мечты в валюте и криптовалюте.">
+  <meta name="theme-color" content="#03130D">
+  <link rel="canonical" href="https://egor0897.github.io/skolkodomechty/rates.html">
+  <link rel="icon" href="favicon.svg" type="image/svg+xml">
+  <meta property="og:type" content="website">
+  <meta property="og:locale" content="ru_RU">
+  <meta property="og:site_name" content="SDM — Сколько до мечты?">
+  <meta property="og:title" content="Курсы валют ЦБ и криптовалют онлайн — SDM">
+  <meta property="og:description" content="Курс доллара, евро и юаня от Банка России и цены биткоина, эфира, TON в прямом эфире. Пересчитайте цену мечты в валюте и криптовалюте.">
+  <meta property="og:url" content="https://egor0897.github.io/skolkodomechty/rates.html">
+  <meta property="og:image" content="https://egor0897.github.io/skolkodomechty/img/og.jpg">
+  <meta name="twitter:card" content="summary_large_image">
+  <!-- шрифты Unbounded и Onest лежат на самом сайте, интернет-сервисы шрифтов не нужны -->
+  <link rel="preload" href="fonts/onest-cyrillic-400-normal.woff2" as="font" type="font/woff2" crossorigin>
+  <link rel="preload" href="fonts/unbounded-cyrillic-700-normal.woff2" as="font" type="font/woff2" crossorigin>
+  <link rel="stylesheet" href="css/fonts.css">
+  <link rel="stylesheet" href="css/style.css">
+</head>
+<!-- data-page сообщает скрипту app.js, какую страницу показать -->
+<body data-page="rates">
+  <div class="bg" aria-hidden="true"></div>
+
+  <!-- строка курсов: её заполняет js/live.js -->
+  <div class="ticker">
+    <a class="wrap ticker-in" id="ticker-items" href="rates.html" aria-label="Курсы валют и криптовалют — открыть страницу «Курсы»"><span class="live"><i></i>загрузка…</span></a>
+  </div>
+
+  <header class="top">
+    <div class="wrap top-in">
+      <a class="brand" href="index.html" aria-label="SDM — Сколько до мечты? На главную">
+        <svg viewBox="0 0 48 48" aria-hidden="true">
+          <defs>
+            <linearGradient id="sdm-g" x1="6" y1="44" x2="42" y2="4" gradientUnits="userSpaceOnUse"><stop offset="0" stop-color="#0E8F5C"/><stop offset=".55" stop-color="#3FDC9A"/><stop offset="1" stop-color="#C8FFE6"/></linearGradient>
+            <linearGradient id="sdm-s" x1="33" y1="16" x2="43" y2="4" gradientUnits="userSpaceOnUse"><stop offset="0" stop-color="#E9B949"/><stop offset="1" stop-color="#FFF1C2"/></linearGradient>
+          </defs>
+          <rect x="1.5" y="1.5" width="45" height="45" rx="14" fill="#052117" stroke="url(#sdm-g)" stroke-width="2"/>
+          <rect x="8" y="28" width="6.5" height="11" rx="2" fill="url(#sdm-g)"/>
+          <rect x="17" y="22" width="6.5" height="17" rx="2" fill="url(#sdm-g)"/>
+          <rect x="26" y="16" width="6.5" height="23" rx="2" fill="url(#sdm-g)"/>
+          <path d="M38.5 4l1.8 4.6 4.6 1.8-4.6 1.8-1.8 4.6-1.8-4.6-4.6-1.8 4.6-1.8z" fill="url(#sdm-s)"/>
+        </svg>
+        <span class="brand-text"><b>SDM</b><small>Сколько до мечты?</small></span>
+      </a>
+      <nav class="nav" aria-label="Разделы">
+        <a href="index.html">Накопления</a>
+        <a href="credit.html">Кредит</a>
+        <a href="expenses.html">Мелкие траты</a>
+        <a href="deposits.html">Вклады</a>
+        <a href="budget.html">Бюджет</a>
+        <a href="inflation.html">Инфляция</a>
+        <a href="rates.html" aria-current="page" class="new">Курсы</a>
+      </nav>
+    </div>
+  </header>
+
+  <main class="wrap">
+    <section class="intro">
+      <p class="eyebrow">Курсы</p>
+      <h1>Курсы в прямом эфире</h1>
+      <p class="lead">Официальные курсы валют Банка России и цены криптовалют с биржи. Пока страница открыта, цены обновляются каждую секунду.</p>
+    </section>
+
+    <div class="layout">
+      <!-- форму и результаты заполняет js/app.js -->
+      <form class="card form" id="form" novalidate></form>
+      <section class="results" id="results" aria-live="polite">
+        <noscript><p class="alert">Для работы калькулятора включите JavaScript в браузере.</p></noscript>
+      </section>
+    </div>
+  </main>
+
+  <footer class="foot">
+    <div class="wrap">
+      <p><b>SDM</b> — «Сколько до мечты?». Школьный проект. Расчёты приблизительные и не являются финансовой рекомендацией. Введённые числа хранятся только в вашем браузере.</p>
+      <p>Курсы: Банк России (через cbr-xml-daily.ru), биржа Binance, CoinGecko. Шрифты Unbounded и Onest — SIL Open Font License.</p>
+    </div>
+  </footer>
+
+  <div class="tip" id="tip" role="tooltip" hidden></div>
+
+  <script src="js/finance.js"></script>
+  <script src="js/live.js"></script>
+  <script src="js/app.js"></script>
+</body>
+</html>
