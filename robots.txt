@@ -1,4 +1,4 @@
 User-agent: *
 Allow: /
 
-Sitemap: https://egor0897.github.io/skolkodomechty/sitemap.xml
+Sitemap: https://sdm-mechty.github.io/sitemap.xml
