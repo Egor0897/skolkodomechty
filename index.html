@@ -21,11 +21,26 @@
   <link rel="preload" href="fonts/unbounded-cyrillic-700-normal.woff2" as="font" type="font/woff2" crossorigin>
   <link rel="stylesheet" href="css/fonts.css">
   <link rel="stylesheet" href="css/style.css">
+  <script>if ("onpagereveal" in window) document.documentElement.classList.add("vt");</script>
   <script type="application/ld+json">{"@context": "https://schema.org", "@type": "WebApplication", "name": "SDM — Сколько до мечты?", "alternateName": ["SDM", "Сколько до мечты"], "url": "https://egor0897.github.io/skolkodomechty/", "applicationCategory": "FinanceApplication", "operatingSystem": "Any", "inLanguage": "ru", "description": "SDM («Сколько до мечты?») — бесплатный калькулятор: когда накопите на мечту в копилке и на вкладе с учётом роста цен. Кредит, вклады, бюджет, инфляция и курсы валют.", "offers": {"@type": "Offer", "price": "0", "priceCurrency": "RUB"}}</script>
 </head>
 <!-- data-page сообщает скрипту app.js, какую страницу показать -->
 <body data-page="goal">
-  <div class="bg" aria-hidden="true"></div>
+  <!-- фон: зелёное сияние, монеты и купюры (картинки в папке img, движение — в css/style.css) -->
+  <div class="bg" aria-hidden="true"><div class="money">
+    <span class="bm bm-coin bm-gold" style="--x:5%;--y:15%;--s:74px;--d:17s;--dl:-2s;--r:-14deg;--o:.62;--tx:14px;--ty:-22px;--g:4.5s"><i></i></span>
+    <span class="bm bm-note bm-green" style="--x:79%;--y:11%;--s:170px;--d:21s;--dl:-6s;--r:8deg;--o:.5;--tx:-20px;--ty:-29px;--g:5.5s"><i></i></span>
+    <span class="bm bm-coin bm-mint" style="--x:89%;--y:44%;--s:58px;--d:15s;--dl:-9s;--r:20deg;--o:.62;--tx:26px;--ty:-36px;--g:6.5s"><i></i></span>
+    <span class="bm bm-note bm-teal" style="--x:2%;--y:56%;--s:180px;--d:23s;--dl:-3s;--r:-10deg;--o:.5;--tx:-32px;--ty:-43px;--g:7.5s"><i></i></span>
+    <span class="bm bm-coin bm-gold" style="--x:20%;--y:82%;--s:62px;--d:19s;--dl:-12s;--r:6deg;--o:.62;--tx:14px;--ty:-50px;--g:4.5s"><i></i></span>
+    <span class="bm bm-coin bm-gold bm-far" style="--x:63%;--y:72%;--s:96px;--d:25s;--dl:-5s;--r:-8deg;--o:.3;--tx:-20px;--ty:-22px;--g:5.5s"><i></i></span>
+    <span class="bm bm-note bm-green" style="--x:40%;--y:88%;--s:150px;--d:22s;--dl:-14s;--r:-4deg;--o:.5;--tx:26px;--ty:-29px;--g:6.5s"><i></i></span>
+    <span class="bm bm-coin bm-mint" style="--x:52%;--y:4%;--s:46px;--d:16s;--dl:-7s;--r:12deg;--o:.62;--tx:-32px;--ty:-36px;--g:7.5s"><i></i></span>
+    <span class="bm bm-coin bm-gold" style="--x:93%;--y:80%;--s:66px;--d:18s;--dl:-1s;--r:-18deg;--o:.62;--tx:14px;--ty:-43px;--g:4.5s"><i></i></span>
+    <span class="bm bm-note bm-teal bm-far" style="--x:30%;--y:32%;--s:130px;--d:27s;--dl:-10s;--r:14deg;--o:.3;--tx:-20px;--ty:-50px;--g:5.5s"><i></i></span>
+    <span class="bm bm-coin bm-mint bm-far" style="--x:13%;--y:40%;--s:42px;--d:14s;--dl:-4s;--r:0deg;--o:.3;--tx:26px;--ty:-22px;--g:6.5s"><i></i></span>
+    <span class="bm bm-note bm-green bm-far" style="--x:70%;--y:44%;--s:120px;--d:26s;--dl:-16s;--r:-12deg;--o:.3;--tx:-32px;--ty:-29px;--g:7.5s"><i></i></span>
+  </div></div>
 
   <!-- строка курсов: её заполняет js/live.js -->
   <div class="ticker">
@@ -50,12 +65,14 @@
       </a>
       <nav class="nav" aria-label="Разделы">
         <a href="index.html" aria-current="page">Накопления</a>
+        <a href="goals.html" class="new">Мои цели</a>
         <a href="credit.html">Кредит</a>
         <a href="expenses.html">Мелкие траты</a>
         <a href="deposits.html">Вклады</a>
         <a href="budget.html">Бюджет</a>
         <a href="inflation.html">Инфляция</a>
-        <a href="rates.html" class="new">Курсы</a>
+        <a href="rates.html">Курсы</a>
+        <a href="quiz.html" class="new">Викторина</a>
       </nav>
     </div>
   </header>

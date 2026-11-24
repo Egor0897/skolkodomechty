@@ -74,6 +74,14 @@
     budget: { pocket: 3000, job: 2000, other: 0, needs: 2000, wants: 2000, savings: 1000 },
     inflation: { price: 60000, inflation: 4, years: 10 },
     rates: { amount: null },   // null — взять цену цели со страницы «Накопления»
+    goals: {
+      draft: { name: "", price: "", saved: "", monthly: "" },
+      list: [
+        { name: "Наушники", price: 8000, saved: 2500, monthly: 1500 },
+        { name: "Велосипед", price: 25000, saved: 4000, monthly: 2000 },
+      ],
+    },
+    quiz: { i: 0, answers: [], best: 0 },
   };
   var KEY = "skolko-do-mechty-v1";
   var S = JSON.parse(JSON.stringify(DEFAULTS));
@@ -587,7 +595,193 @@
     },
   };
 
+  /* ---------- 8. Мои цели: несколько целей и прогресс накопления ---------- */
+  var GOAL_COLORS = ["#5EEAA8", "#F4CF72", "#6BC1FF", "#FFB067", "#C48CFF", "#7DE3D6"];
+  function confetti() {   // праздник, когда цель достигнута
+    if (window.matchMedia && matchMedia("(prefers-reduced-motion: reduce)").matches) return;
+    var box = document.createElement("div"), colors = ["#5EEAA8", "#F4CF72", "#FFFFFF", "#6BC1FF", "#FFB067"];
+    box.className = "confetti";
+    for (var i = 0; i < 70; i++) {
+      var p = document.createElement("i");
+      p.style.left = Math.random() * 100 + "%";
+      p.style.background = colors[i % colors.length];
+      p.style.setProperty("--dx", (Math.random() * 200 - 100) + "px");
+      p.style.setProperty("--rot", (Math.random() * 900 - 450) + "deg");
+      p.style.setProperty("--t", (1.6 + Math.random() * 1.4) + "s");
+      p.style.animationDelay = Math.random() * .4 + "s";
+      box.appendChild(p);
+    }
+    document.body.appendChild(box);
+    setTimeout(function () { box.remove(); }, 3600);
+  }
+  PAGES.goals = {
+    form: function () {
+      var d = S.goals.draft;
+      return '<p class="form-group">Новая цель</p>' +
+        textField("goals", "name", "Название", d.name, true) +
+        numField("goals", "price", "Цена", d.price, "₽") +
+        numField("goals", "saved", "Уже есть", d.saved, "₽") +
+        numField("goals", "monthly", "Откладываю в месяц", d.monthly, "₽", true) +
+        '<button class="btn primary wide" type="submit">Добавить цель</button>' +
+        '<p class="hint">Цели хранятся только в этом браузере. Срок считается с учётом процентов вклада и инфляции со страницы «Накопления».</p>';
+    },
+    read: function (f) {
+      S.goals.draft = { name: val(f, "name").slice(0, 40), price: val(f, "price"), saved: val(f, "saved"), monthly: val(f, "monthly") };
+    },
+    onSubmit: function (f, errs) {
+      var d = S.goals.draft;
+      if (!d.name.trim()) { errs.push("Введите название цели"); return; }
+      var price = parseNum(d.price, 0, 0, 1e8, false, errs, "Цена");
+      if (!price) { errs.push("«Цена»: введите цену больше нуля"); return; }
+      if (S.goals.list.length >= 12) { errs.push("Можно добавить до 12 целей"); return; }
+      S.goals.list.push({ name: d.name.trim(), price: price, saved: parseNum(d.saved, 0, 0, 1e8, false, errs, "Уже есть"),
+        monthly: parseNum(d.monthly, 0, 0, 1e7, false, errs, "Откладываю в месяц") });
+      S.goals.draft = { name: "", price: "", saved: "", monthly: "" };
+      return true;   // форму нужно очистить
+    },
+    results: function (errs) {
+      var g = S.goal, list = S.goals.list;
+      var total = list.reduce(function (s, x) { return s + Math.min(x.saved, x.price); }, 0);
+      var soon = null;
+      var rows = list.map(function (x, i) {
+        var p = x.price ? Math.min(100, x.saved / x.price * 100) : 0, done = x.saved >= x.price;
+        var m = done ? 0 : F.simulate(x.price, x.saved, x.monthly, g.rate, g.inflation).dm;
+        if (!done && m !== null && (soon === null || m < soon.m)) soon = { m: m, name: x.name };
+        var when = done ? '<span class="done-chip">цель достигнута</span>' : m === null ? "взноса не хватает" : "через <b>" + m + NB + "мес.</b> · " + monthLabel(m);
+        return '<div class="g-row' + (done ? " done" : "") + '"><p class="g-name"><i style="--c:' + GOAL_COLORS[i % GOAL_COLORS.length] + '">' + esc(x.name.charAt(0).toUpperCase()) +
+          "</i><span>" + esc(x.name) + '</span></p><span class="g-pct">' + num(p) + NB + "%</span>" +
+          '<div class="g-bar" role="progressbar" aria-valuenow="' + Math.round(p) + '" aria-valuemin="0" aria-valuemax="100" aria-label="' + esc(x.name) + '"><span style="width:' + p.toFixed(1) + '%"></span></div>' +
+          '<p class="g-meta"><span>накоплено <b>' + rub(F.toKop(x.saved)) + "</b> из " + rub(F.toKop(x.price)) + "</span><span>" + (done ? "" : "осталось <b>" + rub(F.toKop(x.price - x.saved)) + "</b>") + "</span><span>" + when + "</span></p>" +
+          '<div class="g-act"><span class="input"><label class="sr" for="add' + i + '">Сколько внести в «' + esc(x.name) + '»</label><input id="add' + i + '" type="text" inputmode="decimal" placeholder="Сумма" autocomplete="off"><span class="unit">₽</span></span>' +
+          '<button type="button" class="btn primary" data-act="add" data-i="' + i + '">Внести</button>' +
+          '<button type="button" class="btn" data-act="plan" data-i="' + i + '">Подробный расчёт</button>' +
+          '<button type="button" class="btn ghost" data-act="del" data-i="' + i + '" aria-label="Удалить цель «' + esc(x.name) + '»">Удалить</button></div></div>';
+      }).join("");
+      return errorsBox(errs) +
+        '<div class="stats three"><div class="stat"><span class="stat-k">Целей</span><strong>' + list.length + '</strong><span class="stat-sub">' + list.filter(function (x) { return x.saved >= x.price; }).length + " достигнуто</span></div>" +
+        '<div class="stat"><span class="stat-k">Накоплено всего</span><strong>' + rub(F.toKop(total)) + '</strong><span class="stat-sub">на все цели</span></div>' +
+        '<div class="stat win"><span class="stat-k">Ближайшая цель</span><strong>' + (soon ? soon.m + NB + "мес." : "—") + '</strong><span class="stat-sub">' + (soon ? esc(soon.name) : "добавьте цель") + "</span></div></div>" +
+        (list.length ? '<div class="card"><h2 class="card-title">Мои цели</h2><div class="goals">' + rows + "</div></div>"
+          : '<div class="card"><p class="verdict">Пока нет целей. Добавьте первую в форме слева.</p></div>');
+    },
+    onClick: function (ev, rerender) {
+      var b = ev.target.closest && ev.target.closest("[data-act]");
+      if (!b) return;
+      var i = +b.getAttribute("data-i"), x = S.goals.list[i];
+      if (!x) return;
+      var act = b.getAttribute("data-act");
+      if (act === "del") { S.goals.list.splice(i, 1); }
+      else if (act === "plan") {   // перенести цель на страницу «Накопления»
+        Object.assign(S.goal, { name: x.name, price: x.price, start: x.saved, monthly: x.monthly });
+        save(); location.href = "index.html"; return;
+      } else if (act === "add") {
+        var inp = document.getElementById("add" + i), e = [];
+        var v = parseNum(inp ? inp.value : "", 0, 0, 1e8, false, e, "Сумма");
+        if (!v) { if (inp) inp.focus(); return; }
+        var was = x.saved >= x.price;
+        x.saved = Math.round((x.saved + v) * 100) / 100;
+        if (!was && x.saved >= x.price) setTimeout(confetti, 50);
+      }
+      save(); rerender();
+    },
+  };
+
+  /* ---------- 9. Викторина по финансовой грамотности ---------- */
+  var QUIZ = [
+    ["Что такое капитализация вклада?", ["Проценты прибавляются к вкладу, и дальше начисляются и на них", "Плата банку за хранение денег", "Запрет снимать деньги до конца срока", "Ставка, которая растёт каждый месяц"], 0,
+      "Это «проценты на проценты». Поэтому вклад с капитализацией растёт быстрее, чем с выплатой процентов в конце срока."],
+    ["Ноутбук стоит 60 000 ₽, инфляция — 4 % в год. Сколько он будет стоить примерно через год?", ["60 000 ₽", "62 400 ₽", "64 000 ₽", "84 000 ₽"], 1,
+      "60 000 × 1,04 = 62 400 ₽. Пока копите, цель тоже дорожает — SDM учитывает это в расчётах."],
+    ["Звонят «из службы безопасности банка» и просят назвать код из СМС. Что делать?", ["Назвать код, чтобы спасти деньги", "Положить трубку и позвонить в банк по номеру с карты", "Перевести деньги на «безопасный счёт»", "Назвать только половину кода"], 1,
+      "Настоящие сотрудники банка никогда не спрашивают коды из СМС и не просят переводить деньги. Это мошенники."],
+    ["Что показывает ПСК в кредитном договоре?", ["Только процентную ставку", "Полную стоимость кредита со всеми обязательными платежами", "Сумму штрафов за просрочку", "Срок кредита"], 1,
+      "ПСК — полная стоимость кредита в процентах годовых. Её печатают в рамке на первой странице договора — по ней удобно сравнивать банки."],
+    ["По правилу 50/30/20 какую долю дохода советуют откладывать?", ["50 %", "30 %", "20 %", "5 %"], 2,
+      "50 % — на нужное, 30 % — на желания, 20 % — на накопления. Проверьте свой бюджет на вкладке «Бюджет»."],
+    ["Ставка 10 % годовых. Какой вклад на год принесёт больше?", ["С выплатой процентов в конце срока", "С ежемесячной капитализацией", "Одинаково", "Зависит от суммы"], 1,
+      "С капитализацией эффективная ставка — около 10,47 %, а без неё — ровно 10 %."],
+    ["С какого возраста можно самостоятельно открыть вклад и распоряжаться им?", ["С 10 лет", "С 14 лет", "С 16 лет", "Только с 18 лет"], 1,
+      "По статье 26 Гражданского кодекса с 14 лет можно самостоятельно вносить вклады и распоряжаться своими доходами."],
+    ["Что такое аннуитетный платёж по кредиту?", ["Платёж, который уменьшается каждый месяц", "Одинаковый платёж каждый месяц", "Платёж только процентов", "Весь долг одним платежом в конце"], 1,
+      "Аннуитет — одинаковая сумма каждый месяц. Именно так считает вкладка «Кредит»."],
+    ["Курс доллара — 80 ₽. Сколько долларов можно купить на 8 000 ₽ по этому курсу?", ["10", "100", "1 000", "640"], 1,
+      "8 000 / 80 = 100. В обменнике выйдет чуть меньше: валюту там продают дороже курса ЦБ."],
+    ["Что лучше всего защищает накопления от инфляции?", ["Копилка дома", "Вклад со ставкой выше инфляции", "Карта без процентов на остаток", "Хранить деньги наличными в кошельке"], 1,
+      "Если ставка вклада выше инфляции, деньги не теряют ценность. Нужную ставку показывает вкладка «Инфляция»."],
+    ["Почему копить на мечту в криптовалюте рискованно?", ["Её цена может сильно измениться за сутки", "Её нельзя купить в интернете", "Она всегда только дешевеет", "Её запрещено хранить"], 0,
+      "Цена может вырасти или упасть на 5–10 % за день. Посмотрите изменения на вкладке «Курсы»."],
+    ["Каждый день вы покупаете перекус за 100 ₽. Сколько это примерно за год?", ["3 650 ₽", "12 000 ₽", "36 500 ₽", "100 000 ₽"], 2,
+      "100 × 365 = 36 500 ₽. Мелкие траты складываются в большие суммы — проверьте на вкладке «Мелкие траты»."],
+  ];
+  var LEVELS = [[0, "Новичок", "Почитайте подсказки — и попробуйте ещё раз!"], [5, "Уверенный", "Хорошая база, осталось немного."],
+                [9, "Финансист", "Отличный результат!"], [12, "Гуру финансов", "Все ответы верные — вы готовы к своей мечте!"]];
+  function quizLevel(score) { var l = LEVELS[0]; LEVELS.forEach(function (x) { if (score >= x[0]) l = x; }); return l; }
+  function quizScore() { return S.quiz.answers.filter(function (a, i) { return a === QUIZ[i][2]; }).length; }
+  PAGES.quiz = {
+    form: function () {
+      var q = S.quiz, bars = QUIZ.map(function (x, i) {
+        var a = q.answers[i];
+        return "<i class=\"" + (a === undefined ? (i === q.i ? "now" : "") : a === x[2] ? "ok" : "no") + "\"></i>";
+      }).join("");
+      return '<p class="form-group">Прогресс</p><div class="q-progress" aria-hidden="true">' + bars + "</div>" +
+        '<div class="field wide"><span class="label">Верных ответов</span><strong style="font-size:1.6rem;font-variant-numeric:tabular-nums">' + quizScore() + " из " + QUIZ.length + "</strong></div>" +
+        '<div class="field wide"><span class="label">Лучший результат</span><strong style="font-size:1.1rem">' + q.best + " из " + QUIZ.length + "</strong></div>" +
+        '<button class="btn wide" type="button" data-quiz="restart">Начать заново</button>' +
+        '<p class="hint">12 вопросов о вкладах, кредитах, инфляции и безопасности денег. Ответы проверяются сразу.</p>';
+    },
+    read: function () {},
+    results: function () {
+      var q = S.quiz;
+      if (q.i >= QUIZ.length) {
+        var sc = quizScore(), lv = quizLevel(sc);
+        var review = QUIZ.map(function (x, i) {
+          var ok = q.answers[i] === x[2];
+          return '<li class="' + (ok ? "ok" : "no") + '"><span>' + (ok ? "✓" : "✗") + "</span><div>" + esc(x[0]) + '<br><small class="hint">Ответ: ' + esc(x[1][x[2]]) + "</small></div></li>";
+        }).join("");
+        return '<div class="stats"><div class="stat win"><span class="stat-k">Результат</span><strong>' + sc + " из " + QUIZ.length + '</strong><span class="stat-sub">' + lv[1] + "</span></div>" +
+          '<div class="stat"><span class="stat-k">Лучший результат</span><strong>' + q.best + '</strong><span class="stat-sub">' + lv[2] + "</span></div></div>" +
+          '<div class="card"><div class="card-head"><h2 class="card-title">Разбор ответов</h2><button class="btn primary" type="button" data-quiz="restart">Пройти ещё раз</button></div><ul class="q-review">' + review + "</ul></div>";
+      }
+      var x = QUIZ[q.i], a = q.answers[q.i], answered = a !== undefined;
+      var opts = x[1].map(function (o, k) {
+        var cls = answered ? (k === x[2] ? " right" : k === a ? " wrong" : "") : "";
+        return '<button type="button" class="q-opt' + cls + '" data-opt="' + k + '"' + (answered ? " disabled" : "") + "><b>" + "АБВГ"[k] + "</b>" + esc(o) + "</button>";
+      }).join("");
+      return '<div class="card" aria-live="polite"><p class="q-num">Вопрос ' + (q.i + 1) + " из " + QUIZ.length + '</p><h2 class="q-text">' + esc(x[0]) + '</h2><div class="q-opts">' + opts + "</div>" +
+        (answered ? '<div class="q-expl"><strong class="' + (a === x[2] ? "accent" : "") + '"' + (a === x[2] ? "" : ' style="color:var(--bad)"') + ">" + (a === x[2] ? "Верно!" : "Не совсем.") + "</strong>" + esc(x[3]) + "</div>" +
+          '<button class="btn primary q-next" type="button" data-quiz="next">' + (q.i + 1 < QUIZ.length ? "Следующий вопрос" : "Узнать результат") + "</button>" : "") + "</div>";
+    },
+    onClick: function (ev, rerender) {
+      var q = S.quiz, t = ev.target.closest && ev.target.closest("[data-opt],[data-quiz]");
+      if (!t) return;
+      if (t.hasAttribute("data-opt")) {
+        if (q.answers[q.i] !== undefined) return;
+        q.answers[q.i] = +t.getAttribute("data-opt");
+      } else if (t.getAttribute("data-quiz") === "next") {
+        q.i++;
+        if (q.i >= QUIZ.length) { var sc = quizScore(); if (sc > q.best) q.best = sc; if (sc >= 9) setTimeout(confetti, 100); }
+      } else if (t.getAttribute("data-quiz") === "restart") {
+        q.i = 0; q.answers = [];
+      }
+      save(); rerender(true);
+      var next = document.querySelector(".q-next, .q-opt:not([disabled])");
+      if (next && t.getAttribute("data-quiz")) next.focus({ preventScroll: true });
+    },
+  };
+
   /* ================================================================ ЗАПУСК СТРАНИЦЫ */
+  // Плавный уход со страницы для браузеров без View Transitions (там анимацию делает CSS)
+  if (!("onpagereveal" in window)) {
+    document.addEventListener("click", function (ev) {
+      var a = ev.target.closest && ev.target.closest(".nav a, .brand");
+      if (!a || ev.defaultPrevented || ev.button || ev.metaKey || ev.ctrlKey || ev.shiftKey || a.getAttribute("aria-current")) return;
+      ev.preventDefault();
+      document.body.classList.add("leaving");
+      setTimeout(function () { location.href = a.href; }, 170);
+    });
+    window.addEventListener("pageshow", function () { document.body.classList.remove("leaving"); });
+  }
+
   var key = document.body.getAttribute("data-page");
   var page = PAGES[key];
   var form = document.getElementById("form"), box = document.getElementById("results"), tip = document.getElementById("tip");
@@ -624,7 +818,27 @@
   }
   form.addEventListener("input", function () { clearTimeout(timer); timer = setTimeout(recalc, 200); });
   form.addEventListener("change", recalc);
-  form.addEventListener("submit", function (e) { e.preventDefault(); recalc(); });
+  form.addEventListener("submit", function (e) {
+    e.preventDefault();
+    if (!page.onSubmit) return recalc();
+    var errs = [];
+    page.read(form, errs);
+    if (page.onSubmit(form, errs)) form.innerHTML = page.form();   // цель добавлена — очищаем форму
+    save();
+    box.innerHTML = page.results(errs);
+  });
+  // кнопки внутри результатов (мои цели, викторина) и в форме (викторина: «Начать заново»)
+  function rerender(withForm) { if (withForm) form.innerHTML = page.form(); box.innerHTML = page.results([]); }
+  if (page.onClick) {
+    box.addEventListener("click", function (ev) { page.onClick(ev, rerender); });
+    form.addEventListener("click", function (ev) { page.onClick(ev, rerender); });
+    box.addEventListener("keydown", function (ev) {   // Enter в поле «Сумма» у цели = «Внести»
+      if (ev.key !== "Enter" || !ev.target.id || ev.target.id.indexOf("add") !== 0) return;
+      ev.preventDefault();
+      var b = box.querySelector('[data-act="add"][data-i="' + ev.target.id.slice(3) + '"]');
+      if (b) b.click();
+    });
+  }
 
   // подсказка при наведении на график
   function moveTip(ev) {
