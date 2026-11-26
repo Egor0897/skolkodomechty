@@ -71,7 +71,8 @@
         { name: "Вклад 3", rate: 9.8, cap: "monthly" },
       ],
     },
-    budget: { pocket: 3000, job: 2000, other: 0, needs: 2000, wants: 2000, savings: 1000 },
+    budget: { pocket: 3000, job: 2000, jobTax: "net", other: 0, needs: 2000, wants: 2000, savings: 1000 },
+    tax: { free: 160000 },     // проценты по вкладам без налога за год: 1 млн ₽ × макс. ключевая ставка (2026 — 16 %)
     inflation: { price: 60000, inflation: 4, years: 10 },
     rates: { amount: null },   // null — взять цену цели со страницы «Накопления»
     goals: {
@@ -159,6 +160,19 @@
       '<div class="offers-list">' + rows + "</div>" + SBER_FINE + "</div>";
   }
 
+  /* ---------------------------------------------------------------- налоги
+     НДФЛ с процентов по вкладам считает js/finance.js; здесь — понятное объяснение для страниц. */
+  function taxFreeText() { return rub(F.TAX.free) + " в год"; }
+  function taxNote(tax, maxYear) {
+    if (tax <= 0) {
+      return "Платить не нужно: проценты за год — не больше " + rub(maxYear) + ", а налог берут только с процентов сверх " + taxFreeText() + ".";
+    }
+    return "До покупки — " + rub(tax) + ": 13" + NB + "% с процентов сверх " + taxFreeText() +
+      " (15" + NB + "% — с части больше 2,4" + NB + "млн ₽). Налог уже вычтен из вклада в расчёте.";
+  }
+  var TAX_FINE = '<p class="hint" style="margin-top:8px">НДФЛ с процентов по вкладам (ст. 214.2 НК РФ). Банк налог не удерживает: налоговая присылает уведомление, заплатить нужно до 1 декабря следующего года. ' +
+    "Необлагаемую сумму можно изменить на вкладке «Вклады».</p>";
+
   /* ================================================================ СТРАНИЦЫ
      У каждой страницы три функции:
        form()    — рисует поля формы;
@@ -205,14 +219,14 @@
       var targetPrice = F.priceAt(F.toKop(g.price), g.inflation, g.target);
       function stat(key, label) {
         var m = key === "piggy" ? p : d, sub = "";
-        if (m) sub = monthLabel(m) + " · " + (key === "piggy" ? "цена " + rub(r.rows[m].price) : "проценты " + rub(r.rows[m].total));
+        if (m) sub = monthLabel(m) + " · " + (key === "piggy" ? "цена " + rub(r.rows[m].price) : "проценты " + rub(r.rows[m].total) + (r.rows[m].tax ? ", налог " + rub(r.rows[m].tax) : ""));
         else if (m === null) sub = key === "piggy" ? "цена растёт быстрее, чем копилка" : "взноса не хватает";
         return '<div class="stat' + (win === key ? " win" : "") + '"><span class="stat-k"><i class="key ' + key + '"></i>' + label +
           (win === key ? "<em>быстрее</em>" : "") + "</span><strong>" + monthsText(m) + '</strong><span class="stat-sub">' + sub + "</span></div>";
       }
       var table = r.rows.slice(1).map(function (x) {
         return "<tr" + (x.month === d ? ' class="goal"' : "") + "><td>" + x.month + (x.month === d ? " ✓" : "") + "</td><td>" + rub2(x.piggy) +
-          "</td><td>" + rub2(x.interest) + "</td><td>" + rub2(x.deposit) + "</td><td>" + rub2(x.price) + "</td></tr>";
+          "</td><td>" + rub2(x.interest) + "</td><td>" + rub2(x.tax) + "</td><td>" + rub2(x.deposit) + "</td><td>" + rub2(x.price) + "</td></tr>";
       }).join("");
       return errorsBox(errs) +
         '<div class="stats">' + stat("piggy", "Копилка") + stat("deposit", "Вклад") + "</div>" +
@@ -221,7 +235,8 @@
         '<div class="plan-row"><div><span>на вклад</span><strong>' + rub(need[0]) + "</strong></div><div><span>в копилку</span><strong>" + rub(need[1]) +
         "</strong></div><div><span>цена к этому времени</span><strong>" + rub(targetPrice) + "</strong></div></div>" +
         '<p class="hint">Сколько откладывать каждый месяц, чтобы успеть.</p></div>' +
-        '<details class="months"><summary>Расчёт по месяцам</summary><div class="table-wrap"><table><thead><tr><th>Месяц</th><th>Копилка</th><th>Проценты</th><th>Вклад</th><th>Цена цели</th></tr></thead><tbody>' +
+        '<div class="card"><p class="plan-k">Налог с процентов по вкладу</p><p class="note">' + taxNote(d ? r.rows[d].tax : r.tax, r.maxYear) + "</p>" + TAX_FINE + "</div>" +
+        '<details class="months"><summary>Расчёт по месяцам</summary><div class="table-wrap"><table><thead><tr><th>Месяц</th><th>Копилка</th><th>Проценты</th><th>Налог всего</th><th>Вклад</th><th>Цена цели</th></tr></thead><tbody>' +
         table + "</tbody></table></div></details>";
     },
   };
@@ -300,7 +315,8 @@
         bars.push(["Купить сразу в кредит", res.total]);
         if (sim.dm) {
           var row = sim.rows[sim.dm], own = row.price - row.total;
-          saving = { months: sim.dm, price: row.price, interest: row.total, diff: res.total - own };
+          own = row.price - row.total + row.tax;          // налог с процентов тоже платим из своих денег
+          saving = { months: sim.dm, price: row.price, interest: row.total, tax: row.tax, diff: res.total - own };
           bars.push(["Накопить на вкладе и купить через " + sim.dm + " мес.", own]);
         }
       }
@@ -321,6 +337,9 @@
         '<div class="stat' + (res.overpay > 0 ? " warn" : "") + '"><span class="stat-k">Переплата</span><strong>' + rub(res.overpay) + '</strong><span class="stat-sub">' + num(res.percent, 1) + NB + "% сверх цены</span></div></div>" +
         (bars.length ? '<div class="card"><h2 class="card-title">Сколько своих денег уйдёт на покупку</h2><div class="bars">' +
           bars.map(function (b) { return bar(b[0], b[1], top); }).join("") + "</div>" + note + "</div>" : "") +
+        '<div class="card"><p class="plan-k">Налоги</p><p class="note">С кредита из банка заёмщик налог не платит — в расчёте его нет. ' +
+        "Исключение: кредит от работодателя или родственника под ставку ниже 2/3 ключевой ставки ЦБ. Тогда с «экономии на процентах» берут НДФЛ 35" + NB + "%. " +
+        (saving && saving.tax ? "В варианте «накопить на вкладе» учтён налог с процентов: " + rub(saving.tax) + "." : "В варианте «накопить на вкладе» налог с процентов — 0 ₽: доход меньше " + taxFreeText() + ".") + "</p></div>" +
         sberHTML("credit");
     },
   };
@@ -398,7 +417,9 @@
             '<option value="monthly"' + (o.cap === "monthly" ? " selected" : "") + ">каждый месяц</option>" +
             '<option value="end"' + (o.cap === "end" ? " selected" : "") + ">один раз в конце срока</option></select></span></label></fieldset>";
         }).join("") +
-        '<p class="hint">Ставки — пример. Подставьте предложения банков.</p>';
+        numField("dep", "taxfree", "Проценты без налога", S.tax.free, "₽ в год", true) +
+        '<p class="hint">Ставки — пример. Подставьте предложения банков. Без налога — проценты до 1 млн ₽ × макс. ключевая ставка ЦБ за год: за 2025 год 210 000 ₽, за 2026 год 160 000 ₽. ' +
+        "Лимит общий для всех вкладов и накопительных счетов человека.</p>";
     },
     read: function (f, e) {
       var d = S.deposits;
@@ -411,24 +432,31 @@
           cap: val(f, "cap" + i) === "end" ? "end" : "monthly",
         };
       });
+      S.tax.free = parseNum(val(f, "taxfree"), 160000, 0, 1e8, false, e, "Проценты без налога");
+      F.setTaxFree(S.tax.free);
     },
     results: function (errs) {
       var d = S.deposits;
       var offers = d.offers.map(function (o) { return Object.assign({}, o, { res: F.depositOffer(d.amount, d.months, o.rate, o.cap) }); });
-      var best = offers.reduce(function (a, b) { return b.res.final > a.res.final ? b : a; });   // самый выгодный
-      var top = Math.max.apply(null, [1].concat(offers.map(function (o) { return o.res.income; })));
+      var best = offers.reduce(function (a, b) { return b.res.net > a.res.net ? b : a; });   // самый выгодный — по доходу после налога
+      var top = Math.max.apply(null, [1].concat(offers.map(function (o) { return o.res.net; })));
+      var anyTax = offers.some(function (o) { return o.res.tax > 0; });
       function capText(c) { return c === "monthly" ? "каждый месяц" : "в конце срока"; }
       var rows = offers.map(function (o) {
         return "<tr" + (o === best ? ' class="goal"' : "") + "><td>" + esc(o.name) + "</td><td>" + num(o.rate, 1) + NB + "%</td><td>" + rub(o.res.income) +
-          "</td><td>" + rub(o.res.final) + "</td><td>" + num(o.res.eff, 2) + NB + "%</td></tr>";
+          "</td><td>" + rub(o.res.tax) + "</td><td>" + rub(o.res.net) + "</td><td>" + num(o.res.eff, 2) + NB + "%</td></tr>";
       }).join("");
       return errorsBox(errs) +
-        '<div class="stats"><div class="stat win"><span class="stat-k">Выгоднее всего<em>лучший</em></span><strong>' + esc(best.name) + '</strong><span class="stat-sub">доход ' + rub(best.res.income) + " за " + d.months + " мес.</span></div>" +
-        '<div class="stat"><span class="stat-k">В конце срока</span><strong>' + rub(best.res.final) + '</strong><span class="stat-sub">вместо ' + rub(d.amount * 100) + "</span></div></div>" +
-        '<div class="card"><h2 class="card-title">Доход по каждому вкладу</h2><div class="bars">' +
-        offers.map(function (o) { return bar(esc(o.name) + "<small>" + num(o.rate, 1) + NB + "%, " + capText(o.cap) + "</small>", o.res.income, top, o !== best); }).join("") + "</div></div>" +
-        '<div class="card"><h2 class="card-title">Подробно</h2><div class="table-wrap plain"><table><thead><tr><th>Вклад</th><th>Ставка</th><th>Доход</th><th>Итог</th><th>На самом деле за год</th></tr></thead><tbody>' + rows + "</tbody></table></div>" +
+        '<div class="stats"><div class="stat win"><span class="stat-k">Выгоднее всего<em>лучший</em></span><strong>' + esc(best.name) + '</strong><span class="stat-sub">доход ' + rub(best.res.net) + " после налога за " + d.months + " мес.</span></div>" +
+        '<div class="stat"><span class="stat-k">В конце срока</span><strong>' + rub(best.res.final) + '</strong><span class="stat-sub">' + (best.res.tax ? "налог " + rub(best.res.tax) + " — заплатить отдельно" : "налог 0 ₽ — доход меньше " + taxFreeText()) + "</span></div></div>" +
+        '<div class="card"><h2 class="card-title">Доход после налога</h2><div class="bars">' +
+        offers.map(function (o) { return bar(esc(o.name) + "<small>" + num(o.rate, 1) + NB + "%, " + capText(o.cap) + "</small>", o.res.net, top, o !== best); }).join("") + "</div></div>" +
+        '<div class="card"><h2 class="card-title">Подробно</h2><div class="table-wrap plain"><table><thead><tr><th>Вклад</th><th>Ставка</th><th>Доход</th><th>Налог</th><th>После налога</th><th>На самом деле за год</th></tr></thead><tbody>' + rows + "</tbody></table></div>" +
         '<p class="hint" style="margin-top:10px">«На самом деле за год» — эффективная ставка: сколько процентов вклад реально приносит за год с учётом того, как начисляются проценты.</p></div>' +
+        '<div class="card"><p class="plan-k">Налог с процентов (НДФЛ)</p><p class="note">' +
+        (anyTax ? "С процентов сверх " + taxFreeText() + " платят 13" + NB + "%, с части больше 2,4" + NB + "млн ₽ — 15" + NB + "%. Если проценты по вкладу приходят в конце срока, весь доход попадает в один год." :
+          "Налог платить не нужно: проценты по каждому вкладу меньше " + taxFreeText() + ". Налог берут только с превышения: 13" + NB + "%, а с части больше 2,4" + NB + "млн ₽ — 15" + NB + "%.") +
+        "</p>" + TAX_FINE.replace(" Необлагаемую сумму можно изменить на вкладке «Вклады».", "") + "</div>" +
         '<div class="card"><p class="plan-k">Что такое капитализация</p><p class="note">Если проценты начисляются каждый месяц, банк прибавляет их к вкладу, и в следующем месяце проценты считаются уже с большей суммы. Это проценты на проценты. Поэтому вклад с капитализацией может обогнать вклад с более высокой ставкой, но с выплатой в конце срока.</p></div>' +
         sberHTML("deposits");
     },
@@ -443,18 +471,24 @@
         numField("bud", "pocket", "Карманные деньги", b.pocket, "₽", true) +
         numField("bud", "job", "Подработка", b.job, "₽") +
         numField("bud", "other", "Подарки и другое", b.other, "₽") +
+        '<label class="field wide" for="bud-jobtax"><span class="label">Подработка указана</span><span class="input sel"><select id="bud-jobtax" name="jobTax">' +
+        '<option value="net"' + (b.jobTax !== "gross" ? " selected" : "") + ">на руки — налог уже удержан</option>" +
+        '<option value="gross"' + (b.jobTax === "gross" ? " selected" : "") + ">до вычета НДФЛ 13" + NB + "%</option></select></span></label>" +
         '<p class="form-group">Расходы в месяц</p>' +
         numField("bud", "needs", "Нужное", b.needs, "₽") +
         numField("bud", "wants", "Желания", b.wants, "₽") +
         numField("bud", "savings", "Откладываю на цель", b.savings, "₽", true) +
-        '<p class="hint">Нужное — проезд, обеды, школьные вещи. Желания — развлечения, игры, кафе, подписки. Числа — пример.</p>';
+        '<p class="hint">Нужное — проезд, обеды, школьные вещи. Желания — развлечения, игры, кафе, подписки. Числа — пример. ' +
+        "С официальной подработки работодатель удерживает НДФЛ 13" + NB + "%. Карманные деньги и подарки от родных налогом не облагаются.</p>";
     },
     read: function (f, e) {
       BUDGET_FIELDS.forEach(function (p) { S.budget[p[0]] = parseNum(val(f, p[0]), DEFAULTS.budget[p[0]], 0, 1e7, false, e, p[1]); });
+      S.budget.jobTax = val(f, "jobTax") === "gross" ? "gross" : "net";
     },
     results: function (errs) {
       var b = S.budget, g = goalCtx();
-      var income = F.toKop(b.pocket + b.job + b.other);
+      var jobTax = b.jobTax === "gross" ? F.rhu(F.toKop(b.job) * 0.13) : 0;     // НДФЛ 13 % с официальной подработки
+      var income = F.toKop(b.pocket + b.job + b.other) - jobTax;
       var spent = { needs: F.toKop(b.needs), wants: F.toKop(b.wants), savings: F.toKop(b.savings) };
       var left = income - spent.needs - spent.wants - spent.savings;
       var parts = F.BUDGET_RULE.map(function (r) {
@@ -473,7 +507,7 @@
           '<div class="brow-pct"><strong>' + num(p.actualPct) + NB + '%</strong><span class="chip ' + p.status + '">' + chip[p.status] + "</span></div></div>";
       }).join("");
       return errorsBox(errs) +
-        '<div class="stats three"><div class="stat"><span class="stat-k">Доходы</span><strong>' + rub(income) + '</strong><span class="stat-sub">в месяц</span></div>' +
+        '<div class="stats three"><div class="stat"><span class="stat-k">Доходы</span><strong>' + rub(income) + '</strong><span class="stat-sub">' + (jobTax ? "в месяц, вычтен НДФЛ " + rub(jobTax) : "в месяц") + "</span></div>" +
         '<div class="stat"><span class="stat-k">Распределено</span><strong>' + rub(income - left) + '</strong><span class="stat-sub">нужное, желания и накопления</span></div>' +
         '<div class="stat' + (left < 0 ? " warn" : left > 0 ? " win" : "") + '"><span class="stat-k">Остаток</span><strong>' + rub(left) + '</strong><span class="stat-sub">' +
         (left < 0 ? "тратите больше, чем получаете" : left > 0 ? "можно добавить в накопления" : "всё распределено") + "</span></div></div>" +
@@ -493,7 +527,8 @@
       return numField("inf", "price", "Цена сейчас", v.price, "₽", true) +
         numField("inf", "inflation", "Инфляция", v.inflation, "% год.") +
         numField("inf", "years", "Лет", v.years, "лет") +
-        '<p class="hint">Инфляцию за прошлые годы публикует Росстат, а цель Банка России — около 4' + NB + "% в год.</p>";
+        '<p class="hint">Инфляцию за прошлые годы публикует Росстат, а цель Банка России — около 4' + NB + "% в год. " +
+        "Если проценты по вкладам за год больше " + taxFreeText() + ", с превышения платят налог 13" + NB + "% — тогда ставка вклада нужна чуть выше.</p>";
     },
     read: function (f, e) {
       var v = S.inflation;
@@ -586,6 +621,7 @@
         '<p class="fine">Официальный курс ЦБ на день. В банке и обменнике валюту продают дороже, а покупают дешевле.</p></div>' +
         '<div class="card"><p class="plan-k">Важно знать</p><p class="note">Цена криптовалюты может за сутки измениться на 5–10' + NB + "% и больше, поэтому копить на мечту в криптовалюте рискованно. " +
         "В России криптовалютой нельзя расплачиваться за товары и услуги (закон №" + NB + "259-ФЗ), а биржи работают только с совершеннолетними. " +
+        "С дохода от продажи криптовалюты платят НДФЛ (13–15" + NB + "%). " +
         "Для накоплений надёжнее рубли на вкладе — посчитайте на странице «Вклады».</p>" +
         '<p class="fine">Данные: Банк России (через cbr-xml-daily.ru), биржа Binance, CoinGecko. Не является инвестиционной рекомендацией.</p></div>';
     },
@@ -788,6 +824,7 @@
   if (typeof Live !== "undefined") Live.start({ spark: key === "rates" });   // курсы в строке вверху
   if (!page || !form || !box) return;
   if (S.rates.amount === null) S.rates.amount = S.goal.price;
+  F.setTaxFree(S.tax.free);         // необлагаемая сумма процентов (меняется на вкладке «Вклады»)
   if (page.live) Live.on(page.live);
 
   form.innerHTML = page.form();

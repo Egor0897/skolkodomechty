@@ -18,26 +18,46 @@ var Finance = (function () {
   // Цена через month месяцев, если цены растут на infl % в год: цена · (1 + инфляция)^(месяцы/12)
   function priceAt(priceKop, infl, month) { return rhu(priceKop * Math.pow(1 + infl / 100, month / 12)); }
 
+  /* НАЛОГ С ПРОЦЕНТОВ ПО ВКЛАДАМ (НДФЛ, ст. 214.2 НК РФ).
+     Без налога — проценты за год до 1 000 000 ₽ × максимальная ключевая ставка ЦБ за этот год
+     (за 2025 год — 210 000 ₽, за 2026 год — 160 000 ₽). С превышения — 13 %,
+     с части превышения больше 2,4 млн ₽ — 15 %. Банк налог не удерживает:
+     налоговая присылает уведомление, заплатить нужно до 1 декабря следующего года.
+     В расчётах налог вычитается из вклада раз в 12 месяцев. */
+  var TAX = { free: 16000000, step: 240000000, r1: 0.13, r2: 0.15 };   // суммы в копейках
+  function setTaxFree(rub) { TAX.free = toKop(Math.max(0, rub)); }
+  function interestTax(yearInterest) {     // налог с процентов за один год (копейки)
+    var base = Math.max(0, yearInterest - TAX.free), low = Math.min(base, TAX.step);
+    return rhu(low * TAX.r1 + (base - low) * TAX.r2);
+  }
+
   /* 1. НАКОПЛЕНИЯ. Главный алгоритм: проходим месяц за месяцем, как настоящий банк.
      Каждый месяц: банк начисляет проценты, человек кладёт взнос,
      цена цели растёт, и мы проверяем, хватает ли уже денег. */
   function simulate(price, start, monthly, rate, infl) {
     var priceKop = toKop(price), pay = toKop(monthly), i = rate / 1200; // годовая ставка → за месяц
     var piggy = toKop(start), deposit = piggy, total = 0;
-    var rows = [{ month: 0, piggy: piggy, interest: 0, deposit: deposit, price: priceKop, total: 0 }];
+    var rows = [{ month: 0, piggy: piggy, interest: 0, deposit: deposit, price: priceKop, total: 0, tax: 0 }];
     var pm = piggy >= priceKop ? 0 : null, dm = deposit >= priceKop ? 0 : null;
+    var yearInt = 0, tax = 0, maxYear = 0;     // проценты за текущий год, весь налог, самые большие проценты за год
     for (var m = 1; m <= MAX_MONTHS; m++) {
       var interest = rhu(deposit * i);         // 1) проценты банка за месяц, до копейки
       deposit += interest + pay;               // 2) вклад: проценты + взнос
       piggy += pay;                            //    копилка: только взнос
       total += interest;
+      yearInt += interest;
+      if (m % 12 === 0) {                      //    раз в год — налог с процентов сверх необлагаемой суммы
+        var t = interestTax(yearInt);
+        deposit -= t; tax += t;
+        maxYear = Math.max(maxYear, yearInt); yearInt = 0;
+      }
       var cur = priceAt(priceKop, infl, m);    // 3) цена цели выросла
-      rows.push({ month: m, piggy: piggy, interest: interest, deposit: deposit, price: cur, total: total });
+      rows.push({ month: m, piggy: piggy, interest: interest, deposit: deposit, price: cur, total: total, tax: tax });
       if (pm === null && piggy >= cur) pm = m; // 4) первый месяц, когда денег хватает
       if (dm === null && deposit >= cur) dm = m;
       if (pm !== null && dm !== null && m >= Math.max(pm, dm) + 2) break; // ещё пара месяцев для графика
     }
-    return { rows: rows, pm: pm, dm: dm };
+    return { rows: rows, pm: pm, dm: dm, tax: tax, maxYear: Math.max(maxYear, yearInt) };
   }
 
   // Обратная задача: сколько откладывать в месяц, чтобы успеть за months месяцев
@@ -71,16 +91,22 @@ var Finance = (function () {
   /* 4. ВКЛАДЫ. «каждый месяц» — сложный процент (проценты на проценты),
      «в конце срока» — простой процент только на первоначальную сумму. */
   function depositOffer(amount, months, rate, cap) {
-    var start = toKop(amount), final;
+    var start = toKop(amount), final, tax = 0;
     if (cap === "monthly") {
       final = start;
-      for (var k = 0; k < months; k++) final += rhu(final * rate / 1200);
+      var yearInt = 0;
+      for (var k = 1; k <= months; k++) {
+        var it = rhu(final * rate / 1200);
+        final += it; yearInt += it;
+        if (k % 12 === 0 || k === months) { tax += interestTax(yearInt); yearInt = 0; }   // налог за каждый год
+      }
     } else {
       final = start + rhu(start * rate / 100 * months / 12);
+      tax = interestTax(final - start);      // проценты в конце срока приходят в одном году
     }
     // эффективная ставка: сколько % вклад на самом деле приносит за год
     var eff = start > 0 && months > 0 ? (Math.pow(final / start, 12 / months) - 1) * 100 : 0;
-    return { final: final, income: final - start, eff: eff };
+    return { final: final, income: final - start, eff: eff, tax: tax, net: final - start - tax };
   }
 
   /* 5. БЮДЖЕТ. Правило 50/30/20: нужное, желания, накопления */
@@ -102,5 +128,6 @@ var Finance = (function () {
     rhu: rhu, toKop: toKop, priceAt: priceAt, simulate: simulate, neededMonthly: neededMonthly,
     annuity: annuity, credit: credit, PERIODS: PERIODS, expenseMonthly: expenseMonthly,
     depositOffer: depositOffer, BUDGET_RULE: BUDGET_RULE, inflationYears: inflationYears, rateToBeat: rateToBeat,
+    TAX: TAX, setTaxFree: setTaxFree, interestTax: interestTax,
   };
 })();
