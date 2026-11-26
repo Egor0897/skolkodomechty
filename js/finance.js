@@ -31,6 +31,51 @@ var Finance = (function () {
     return rhu(low * TAX.r1 + (base - low) * TAX.r2);
   }
 
+  /* НДФЛ С ЗАРПЛАТЫ И ПОДРАБОТКИ ПО ДОГОВОРУ (ст. 224 НК РФ) — прогрессивная шкала за год:
+     до 2,4 млн ₽ — 13 %, от 2,4 до 5 млн — 15 %, от 5 до 20 млн — 18 %, от 20 до 50 млн — 20 %, больше 50 млн — 22 %.
+     Повышенная ставка берётся только с той части дохода, которая больше порога. */
+  var NDFL_SCALE = [[240000000, 0.13], [500000000, 0.15], [2000000000, 0.18], [5000000000, 0.20], [Infinity, 0.22]];   // [до, ставка], копейки за год
+  function incomeTax(yearIncome) {          // доход за год → налог за год (копейки)
+    var tax = 0, prev = 0;
+    for (var k = 0; k < NDFL_SCALE.length && yearIncome > prev; k++) {
+      tax += (Math.min(yearIncome, NDFL_SCALE[k][0]) - prev) * NDFL_SCALE[k][1];
+      prev = NDFL_SCALE[k][0];
+    }
+    return rhu(tax);
+  }
+  function incomeStep(yearIncome) {         // номер ступени шкалы, в которую попал доход
+    for (var k = 0; k < NDFL_SCALE.length; k++) if (yearIncome <= NDFL_SCALE[k][0]) return k;
+    return NDFL_SCALE.length - 1;
+  }
+
+  /* САМОЗАНЯТОСТЬ — налог на профессиональный доход (422-ФЗ): 4 % с оплаты от людей, 6 % — от компаний и ИП.
+     Самозанятым можно быть, пока доход не больше 2,4 млн ₽ в год; если больше — платят НДФЛ по шкале выше. */
+  var NPD = { people: 0.04, firms: 0.06, limit: 240000000 };
+
+  /* ПРИЗЫ И ПОДАРКИ ОТ КОМПАНИЙ (п. 28 ст. 217, ст. 224 НК РФ). Первые 4 000 ₽ за год — без налога.
+     С превышения: призы в рекламных розыгрышах — 35 %, призы на конкурсах и подарки от компаний — 13 %.
+     Денежные подарки от людей (родных, друзей) налогом не облагаются. */
+  var PRIZE = { free: 400000, promo: 0.35, contest: 0.13 };
+  function prizeTax(value, kind) {
+    return rhu(Math.max(0, value - PRIZE.free) * (kind === "promo" ? PRIZE.promo : PRIZE.contest));
+  }
+
+  /* ЛЬГОТНЫЙ ЗАЁМ ОТ РАБОТОДАТЕЛЯ (ст. 212 НК РФ). Если компания или ИП, где человек работает, даёт в долг
+     под ставку ниже 2/3 ключевой ставки ЦБ, «экономия на процентах» считается доходом: НДФЛ 35 %.
+     Экономия = остаток долга × (2/3 ключевой − ставка займа) за каждый месяц. Заём от родных и друзей
+     и кредит в банке налогом не облагаются. */
+  var KEY_RATE = 14;   // ключевая ставка Банка России, % годовых: с 24.07.2026, сохранена 23.10.2026
+  function benefitTax(amount, months, rate) {
+    var limit = KEY_RATE * 2 / 3, debt = toKop(amount), pay = annuity(amount, months, rate), base = 0;
+    if (rate >= limit || debt <= 0) return { limit: limit, base: 0, tax: 0 };
+    for (var m = 1; m <= months && debt > 0; m++) {
+      base += debt * (limit - rate) / 1200;               // экономия за месяц
+      debt -= Math.min(debt, pay - rhu(debt * rate / 1200)); // долг уменьшается на часть платежа без процентов
+    }
+    base = rhu(base);
+    return { limit: limit, base: base, tax: rhu(base * 0.35) };
+  }
+
   /* 1. НАКОПЛЕНИЯ. Главный алгоритм: проходим месяц за месяцем, как настоящий банк.
      Каждый месяц: банк начисляет проценты, человек кладёт взнос,
      цена цели растёт, и мы проверяем, хватает ли уже денег. */
@@ -129,5 +174,7 @@ var Finance = (function () {
     annuity: annuity, credit: credit, PERIODS: PERIODS, expenseMonthly: expenseMonthly,
     depositOffer: depositOffer, BUDGET_RULE: BUDGET_RULE, inflationYears: inflationYears, rateToBeat: rateToBeat,
     TAX: TAX, setTaxFree: setTaxFree, interestTax: interestTax,
+    NDFL_SCALE: NDFL_SCALE, incomeTax: incomeTax, incomeStep: incomeStep, NPD: NPD,
+    PRIZE: PRIZE, prizeTax: prizeTax, KEY_RATE: KEY_RATE, benefitTax: benefitTax,
   };
 })();

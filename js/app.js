@@ -52,7 +52,7 @@
   /* ---------------------------------------------------------------- данные (примеры по умолчанию) */
   var DEFAULTS = {
     goal: { name: "Ноутбук", price: 60000, start: 0, monthly: 3000, rate: 10, inflation: 4, target: 12 },
-    credit: { amount: 60000, months: 12, rate: 20, extra: 0 },
+    credit: { amount: 60000, months: 12, rate: 20, extra: 0, lender: "bank" },
     expenses: {
       rows: [
         { name: "Перекус в школе", price: 120, times: 5, period: "week" },
@@ -71,7 +71,7 @@
         { name: "Вклад 3", rate: 9.8, cap: "monthly" },
       ],
     },
-    budget: { pocket: 3000, job: 2000, jobTax: "net", other: 0, needs: 2000, wants: 2000, savings: 1000 },
+    budget: { pocket: 3000, job: 2000, jobTax: "contract", other: 0, prize: 0, prizeKind: "promo", needs: 1740, wants: 2000, savings: 1000 },
     tax: { free: 160000 },     // проценты по вкладам без налога за год: 1 млн ₽ × макс. ключевая ставка (2026 — 16 %)
     inflation: { price: 60000, inflation: 4, years: 10 },
     rates: { amount: null },   // null — взять цену цели со страницы «Накопления»
@@ -89,6 +89,8 @@
   try {
     var saved = JSON.parse(localStorage.getItem(KEY) || "null");
     if (saved && typeof saved === "object") for (var k in DEFAULTS) if (saved[k]) S[k] = Object.assign(S[k], saved[k]);
+    // бюджет-пример из прошлой версии сайта (без налога с подработки) меняем на новый пример
+    if (JSON.stringify(saved && saved.budget) === '{"pocket":3000,"job":2000,"jobTax":"net","other":0,"needs":2000,"wants":2000,"savings":1000}') S.budget = JSON.parse(JSON.stringify(DEFAULTS.budget));
   } catch (e) { /* память браузера недоступна — работаем с примерами */ }
   function save() { try { localStorage.setItem(KEY, JSON.stringify(S)); } catch (e) {} }
 
@@ -163,9 +165,20 @@
   /* ---------------------------------------------------------------- налоги
      НДФЛ с процентов по вкладам считает js/finance.js; здесь — понятное объяснение для страниц. */
   function taxFreeText() { return rub(F.TAX.free) + " в год"; }
-  function taxNote(tax, maxYear) {
+  // С какой суммы на вкладе проценты за год станут больше необлагаемой суммы — тогда налог появится сам
+  function taxStart(rate, cap, months) {
+    if (!(rate > 0)) return 0;
+    var share = cap === "end" ? rate / 100 * months / 12 : Math.pow(1 + rate / 1200, Math.min(12, months)) - 1;
+    return Math.floor(F.TAX.free / share / 100000) * 100000;      // округляем вниз до 1 000 ₽
+  }
+  function taxStartText(rate, cap, months) {
+    var a = taxStart(rate, cap, months);
+    return a ? "Налог появится сам, если на вкладе будет больше ≈" + NB + rub(a) + " при ставке " + num(rate, 1) + NB + "%." : "";
+  }
+  function taxNote(tax, maxYear, rate) {
     if (tax <= 0) {
-      return "Платить не нужно: проценты за год — не больше " + rub(maxYear) + ", а налог берут только с процентов сверх " + taxFreeText() + ".";
+      return "Платить не нужно: проценты за год — не больше " + rub(maxYear) + ", а налог берут только с процентов сверх " + taxFreeText() + ". " +
+        taxStartText(rate, "monthly", 12);
     }
     return "До покупки — " + rub(tax) + ": 13" + NB + "% с процентов сверх " + taxFreeText() +
       " (15" + NB + "% — с части больше 2,4" + NB + "млн ₽). Налог уже вычтен из вклада в расчёте.";
@@ -235,7 +248,7 @@
         '<div class="plan-row"><div><span>на вклад</span><strong>' + rub(need[0]) + "</strong></div><div><span>в копилку</span><strong>" + rub(need[1]) +
         "</strong></div><div><span>цена к этому времени</span><strong>" + rub(targetPrice) + "</strong></div></div>" +
         '<p class="hint">Сколько откладывать каждый месяц, чтобы успеть.</p></div>' +
-        '<div class="card"><p class="plan-k">Налог с процентов по вкладу</p><p class="note">' + taxNote(d ? r.rows[d].tax : r.tax, r.maxYear) + "</p>" + TAX_FINE + "</div>" +
+        '<div class="card"><p class="plan-k">Налог с процентов по вкладу</p><p class="note">' + taxNote(d ? r.rows[d].tax : r.tax, r.maxYear, g.rate) + "</p>" + TAX_FINE + "</div>" +
         '<details class="months"><summary>Расчёт по месяцам</summary><div class="table-wrap"><table><thead><tr><th>Месяц</th><th>Копилка</th><th>Проценты</th><th>Налог всего</th><th>Вклад</th><th>Цена цели</th></tr></thead><tbody>' +
         table + "</tbody></table></div></details>";
     },
@@ -290,6 +303,16 @@
   }
 
   /* ---------- 2. Кредит ---------- */
+  function creditTaxText(c, bt) {
+    function r2(v) { return String(Math.round(v * 100) / 100).replace(".", ","); }   // 9,33 · 14 · 0
+    var lim = r2(bt.limit) + NB + "% (2/3 ключевой ставки ЦБ " + r2(F.KEY_RATE) + NB + "%)";
+    if (c.lender === "bank") return "Кредит в банке налогом не облагается — налога в расчёте нет.";
+    if (c.lender === "family") return "Заём у родителей, родных или друзей налогом не облагается, даже без процентов.";
+    if (!bt.tax) return "Ставка займа не ниже " + lim + " — налога нет. Если ставка будет ниже, налог 35" + NB + "% с «экономии на процентах» посчитается сам.";
+    return "Ставка " + r2(c.rate) + NB + "% ниже " + lim + ". Разница — «экономия на процентах» " + rub(bt.base) +
+      ", с неё платят НДФЛ 35" + NB + "%: <b>" + rub(bt.tax) + "</b> (ст." + NB + "212 НК РФ). Налог уже прибавлен к сумме «Всего заплатите». Его удерживает работодатель из зарплаты.";
+  }
+  var LENDERS = [["bank", "банк"], ["family", "родные или друзья"], ["employer", "работодатель"]];
   PAGES.credit = {
     form: function () {
       var c = S.credit;
@@ -297,6 +320,8 @@
         numField("credit", "months", "Срок", c.months, "мес.") +
         numField("credit", "rate", "Ставка", c.rate, "% год.") +
         numField("credit", "extra", "Страховка и комиссии", c.extra, "₽", true) +
+        '<label class="field wide" for="credit-lender"><span class="label">Кто даёт деньги</span><span class="input sel"><select id="credit-lender" name="lender">' +
+        LENDERS.map(function (l) { return '<option value="' + l[0] + '"' + (c.lender === l[0] ? " selected" : "") + ">" + l[1] + "</option>"; }).join("") + "</select></span></label>" +
         '<p class="hint">Сравнивайте предложения по ПСК — полной стоимости кредита. Её печатают в рамке в правом верхнем углу первой страницы договора.</p>';
     },
     read: function (f, e) {
@@ -305,17 +330,22 @@
       c.months = parseNum(val(f, "months"), 12, 1, 360, true, e, "Срок");
       c.rate = parseNum(val(f, "rate"), 20, 0, 200, false, e, "Ставка");
       c.extra = parseNum(val(f, "extra"), 0, 0, 1e7, false, e, "Страховка и комиссии");
+      c.lender = LENDERS.some(function (l) { return l[0] === val(f, "lender"); }) ? val(f, "lender") : "bank";
     },
     results: function (errs) {
       var c = S.credit, g = goalCtx(), res = F.credit(c.amount, c.months, c.rate, c.extra);
+      // налог с «экономии на процентах» — только у займа от работодателя под ставку ниже 2/3 ключевой
+      var bt = c.lender === "employer" ? F.benefitTax(c.amount, c.months, c.rate) : { limit: F.KEY_RATE * 2 / 3, base: 0, tax: 0 };
+      res.total += bt.tax; res.overpay += bt.tax;
+      res.percent = c.amount > 0 ? res.overpay / F.toKop(c.amount) * 100 : 0;
       var bars = [], saving = null;
       if (c.amount > 0) {
         // что, если ту же сумму платежа каждый месяц класть на вклад?
         var sim = F.simulate(c.amount, 0, res.payment / 100, g.rate, g.inflation);
-        bars.push(["Купить сразу в кредит", res.total]);
+        bars.push([c.lender === "bank" ? "Купить сразу в кредит" : "Купить сразу в долг", res.total]);
         if (sim.dm) {
           var row = sim.rows[sim.dm], own = row.price - row.total;
-          own = row.price - row.total + row.tax;          // налог с процентов тоже платим из своих денег
+          own = row.price - row.total + row.tax;          // налог с процентов вклада тоже платим из своих денег
           saving = { months: sim.dm, price: row.price, interest: row.total, tax: row.tax, diff: res.total - own };
           bars.push(["Накопить на вкладе и купить через " + sim.dm + " мес.", own]);
         }
@@ -333,12 +363,11 @@
       return errorsBox(errs) +
         '<div class="stats three">' +
         '<div class="stat"><span class="stat-k">Платёж в месяц</span><strong>' + rub2(res.payment) + NB + '₽</strong><span class="stat-sub">' + c.months + " " + plural(c.months, "платёж", "платежа", "платежей") + "</span></div>" +
-        '<div class="stat"><span class="stat-k">Всего заплатите</span><strong>' + rub(res.total) + '</strong><span class="stat-sub">вместо ' + rub(c.amount * 100) + "</span></div>" +
+        '<div class="stat"><span class="stat-k">Всего заплатите</span><strong>' + rub(res.total) + '</strong><span class="stat-sub">вместо ' + rub(c.amount * 100) + (bt.tax ? ", с налогом " + rub(bt.tax) : "") + "</span></div>" +
         '<div class="stat' + (res.overpay > 0 ? " warn" : "") + '"><span class="stat-k">Переплата</span><strong>' + rub(res.overpay) + '</strong><span class="stat-sub">' + num(res.percent, 1) + NB + "% сверх цены</span></div></div>" +
         (bars.length ? '<div class="card"><h2 class="card-title">Сколько своих денег уйдёт на покупку</h2><div class="bars">' +
           bars.map(function (b) { return bar(b[0], b[1], top); }).join("") + "</div>" + note + "</div>" : "") +
-        '<div class="card"><p class="plan-k">Налоги</p><p class="note">С кредита из банка заёмщик налог не платит — в расчёте его нет. ' +
-        "Исключение: кредит от работодателя или родственника под ставку ниже 2/3 ключевой ставки ЦБ. Тогда с «экономии на процентах» берут НДФЛ 35" + NB + "%. " +
+        '<div class="card"><p class="plan-k">Налоги</p><p class="note">' + creditTaxText(c, bt) + " " +
         (saving && saving.tax ? "В варианте «накопить на вкладе» учтён налог с процентов: " + rub(saving.tax) + "." : "В варианте «накопить на вкладе» налог с процентов — 0 ₽: доход меньше " + taxFreeText() + ".") + "</p></div>" +
         sberHTML("credit");
     },
@@ -455,7 +484,8 @@
         '<p class="hint" style="margin-top:10px">«На самом деле за год» — эффективная ставка: сколько процентов вклад реально приносит за год с учётом того, как начисляются проценты.</p></div>' +
         '<div class="card"><p class="plan-k">Налог с процентов (НДФЛ)</p><p class="note">' +
         (anyTax ? "С процентов сверх " + taxFreeText() + " платят 13" + NB + "%, с части больше 2,4" + NB + "млн ₽ — 15" + NB + "%. Если проценты по вкладу приходят в конце срока, весь доход попадает в один год." :
-          "Налог платить не нужно: проценты по каждому вкладу меньше " + taxFreeText() + ". Налог берут только с превышения: 13" + NB + "%, а с части больше 2,4" + NB + "млн ₽ — 15" + NB + "%.") +
+          "Налог платить не нужно: проценты по каждому вкладу меньше " + taxFreeText() + ". Налог берут только с превышения: 13" + NB + "%, а с части больше 2,4" + NB + "млн ₽ — 15" + NB + "%. " +
+          taxStartText(best.rate, best.cap, d.months).replace("на вкладе будет", "положить на «" + esc(best.name) + "»")) +
         "</p>" + TAX_FINE.replace(" Необлагаемую сумму можно изменить на вкладке «Вклады».", "") + "</div>" +
         '<div class="card"><p class="plan-k">Что такое капитализация</p><p class="note">Если проценты начисляются каждый месяц, банк прибавляет их к вкладу, и в следующем месяце проценты считаются уже с большей суммы. Это проценты на проценты. Поэтому вклад с капитализацией может обогнать вклад с более высокой ставкой, но с выплатой в конце срока.</p></div>' +
         sberHTML("deposits");
@@ -464,6 +494,44 @@
 
   /* ---------- 5. Бюджет ---------- */
   var BUDGET_FIELDS = [["pocket", "Карманные деньги"], ["job", "Подработка"], ["other", "Подарки и другое"], ["needs", "Нужное"], ["wants", "Желания"], ["savings", "Откладываю на цель"]];
+  var JOB_KINDS = [["contract", "по договору — НДФЛ сам"], ["npd_people", "самозанятость, люди — 4" + NB + "%"],
+    ["npd_firms", "самозанятость, фирмы — 6" + NB + "%"], ["net", "на руки — налог удержан"]];
+  var PRIZE_KINDS = [["promo", "розыгрыш, реклама — 35" + NB + "%"], ["contest", "конкурс, подарок — 13" + NB + "%"]];
+  var SCALE_TEXT = ["до 2,4" + NB + "млн ₽ в год · до 200" + NB + "000 ₽ в месяц", "от 2,4 до 5" + NB + "млн ₽ · до 416" + NB + "667 ₽ в месяц",
+    "от 5 до 20" + NB + "млн ₽ · до 1,67" + NB + "млн ₽ в месяц", "от 20 до 50" + NB + "млн ₽ · до 4,17" + NB + "млн ₽ в месяц", "больше 50" + NB + "млн ₽ в год"];
+  function selField(page, name, label, list, value) {
+    return '<label class="field wide" for="' + page + "-" + name + '"><span class="label">' + label + '</span><span class="input sel"><select id="' + page + "-" + name + '" name="' + name + '">' +
+      list.map(function (o) { return '<option value="' + o[0] + '"' + (value === o[0] ? " selected" : "") + ">" + o[1] + "</option>"; }).join("") + "</select></span></label>";
+  }
+  function pick(list, v, def) { return list.some(function (o) { return o[0] === v; }) ? v : def; }
+  // Налог с подработки за месяц: выбирает правило сам по виду подработки и сумме
+  function jobTaxCalc(b) {
+    var job = F.toKop(b.job), year = job * 12, kind = b.jobTax === "gross" ? "contract" : b.jobTax, over = false;
+    if (kind === "npd_people" || kind === "npd_firms") {
+      if (year <= F.NPD.limit) return { kind: kind, year: year, tax: F.rhu(job * F.NPD[kind === "npd_people" ? "people" : "firms"]) };
+      kind = "contract"; over = true;                       // доход больше 2,4 млн ₽ в год — самозанятым быть нельзя
+    }
+    if (kind === "contract") return { kind: kind, year: year, over: over, step: F.incomeStep(year), tax: F.rhu(F.incomeTax(year) / 12) };
+    return { kind: "net", year: year, tax: 0 };
+  }
+  function jobTaxText(b, jt) {
+    if (!b.job) return "Подработки нет — налога с неё тоже нет.";
+    if (jt.kind === "net") return "Вы вписали сумму на руки: работодатель уже удержал НДФЛ, второй раз его не вычитаем.";
+    if (jt.kind !== "contract") return "Самозанятые платят налог на профессиональный доход: 4" + NB + "% с оплаты от людей и 6" + NB + "% — от компаний и ИП. " +
+      "Налог приходит в приложении «Мой налог», заплатить нужно до 28-го числа следующего месяца. Самозанятым можно стать с 14 лет с письменного согласия родителей.";
+    var avg = jt.year ? jt.tax * 12 / jt.year * 100 : 0;
+    return (jt.over ? "<b>Доход больше 2,4" + NB + "млн ₽ в год — самозанятым быть нельзя, поэтому налог посчитан по шкале НДФЛ.</b> " : "") +
+      "Доход за год — " + rub(jt.year) + ", НДФЛ — " + rub(jt.tax * 12) + " в год (в среднем " + num(avg, 1) + NB + "%). " +
+      (jt.step ? "Доход больше 2,4" + NB + "млн ₽ в год, поэтому с части сверх порога ставка выше — смотрите строку, выделенную в таблице." :
+        "Пока доход не больше 200" + NB + "000 ₽ в месяц, ставка 13" + NB + "%. Если вписать больше, повышенная ставка включится сама.") +
+      " Налог удерживает работодатель до выплаты.";
+  }
+  function prizeText(b, ptax) {
+    if (!b.prize) return "Впишите приз от магазина, блогера или конкурса — если он больше 4" + NB + "000 ₽, налог посчитается сам.";
+    if (!ptax) return "Приз не больше 4" + NB + "000 ₽ за год — налога нет.";
+    return "Первые 4" + NB + "000 ₽ за год — без налога. С остальных " + rub(F.toKop(b.prize) - F.PRIZE.free) + " — " + (b.prizeKind === "promo" ? "35" : "13") + NB + "%: <b>" + rub(ptax) + "</b>. " +
+      "Деньгами налог удерживает организатор, а за вещь налоговая пришлёт уведомление — заплатить до 1 декабря следующего года.";
+  }
   PAGES.budget = {
     form: function () {
       var b = S.budget;
@@ -471,23 +539,28 @@
         numField("bud", "pocket", "Карманные деньги", b.pocket, "₽", true) +
         numField("bud", "job", "Подработка", b.job, "₽") +
         numField("bud", "other", "Подарки и другое", b.other, "₽") +
-        '<label class="field wide" for="bud-jobtax"><span class="label">Подработка указана</span><span class="input sel"><select id="bud-jobtax" name="jobTax">' +
-        '<option value="net"' + (b.jobTax !== "gross" ? " selected" : "") + ">на руки — налог уже удержан</option>" +
-        '<option value="gross"' + (b.jobTax === "gross" ? " selected" : "") + ">до вычета НДФЛ 13" + NB + "%</option></select></span></label>" +
+        selField("bud", "jobTax", "Как оформлена подработка", JOB_KINDS, b.jobTax === "gross" ? "contract" : b.jobTax) +
+        '<p class="form-group">Приз за год</p>' +
+        numField("bud", "prize", "Приз или подарок от компании", b.prize, "₽", true) +
+        selField("bud", "prizeKind", "Откуда приз", PRIZE_KINDS, b.prizeKind) +
         '<p class="form-group">Расходы в месяц</p>' +
         numField("bud", "needs", "Нужное", b.needs, "₽") +
         numField("bud", "wants", "Желания", b.wants, "₽") +
         numField("bud", "savings", "Откладываю на цель", b.savings, "₽", true) +
         '<p class="hint">Нужное — проезд, обеды, школьные вещи. Желания — развлечения, игры, кафе, подписки. Числа — пример. ' +
-        "С официальной подработки работодатель удерживает НДФЛ 13" + NB + "%. Карманные деньги и подарки от родных налогом не облагаются.</p>";
+        "Налоги считаются сами: с подработки по договору — по шкале НДФЛ (13" + NB + "%, а с больших сумм — до 22" + NB + "%), с приза — с суммы больше 4" + NB + "000 ₽. " +
+        "Карманные деньги и подарки от родных и друзей налогом не облагаются.</p>";
     },
     read: function (f, e) {
-      BUDGET_FIELDS.forEach(function (p) { S.budget[p[0]] = parseNum(val(f, p[0]), DEFAULTS.budget[p[0]], 0, 1e7, false, e, p[1]); });
-      S.budget.jobTax = val(f, "jobTax") === "gross" ? "gross" : "net";
+      BUDGET_FIELDS.forEach(function (p) { S.budget[p[0]] = parseNum(val(f, p[0]), DEFAULTS.budget[p[0]], 0, 1e9, false, e, p[1]); });
+      S.budget.prize = parseNum(val(f, "prize"), 0, 0, 1e9, false, e, "Приз");
+      S.budget.jobTax = pick(JOB_KINDS, val(f, "jobTax"), "contract");
+      S.budget.prizeKind = pick(PRIZE_KINDS, val(f, "prizeKind"), "promo");
     },
     results: function (errs) {
       var b = S.budget, g = goalCtx();
-      var jobTax = b.jobTax === "gross" ? F.rhu(F.toKop(b.job) * 0.13) : 0;     // НДФЛ 13 % с официальной подработки
+      var jt = jobTaxCalc(b), jobTax = jt.tax;                      // налог с подработки за месяц
+      var ptax = F.prizeTax(F.toKop(b.prize), b.prizeKind), prizeNet = F.toKop(b.prize) - ptax;
       var income = F.toKop(b.pocket + b.job + b.other) - jobTax;
       var spent = { needs: F.toKop(b.needs), wants: F.toKop(b.wants), savings: F.toKop(b.savings) };
       var left = income - spent.needs - spent.wants - spent.savings;
@@ -500,22 +573,34 @@
       });
       var nowM = F.simulate(g.price, g.start, spent.savings / 100, g.rate, g.inflation).dm;
       var ruleM = F.simulate(g.price, g.start, parts[2].rec / 100, g.rate, g.inflation).dm;
+      var prizeM = prizeNet > 0 ? F.simulate(g.price, g.start + prizeNet / 100, spent.savings / 100, g.rate, g.inflation).dm : null;
       var chip = { ok: "в норме", high: "больше нормы", low: "меньше нормы" };
       var rows = parts.map(function (p) {
         return '<div class="brow"><div class="brow-name"><strong>' + p.label + "</strong><span>" + rub(p.actual) + " · норма " + rub(p.rec) + "</span></div>" +
           '<div class="btrack" title="Сейчас ' + num(p.actualPct) + " %, по правилу " + p.share + ' %"><span class="bfill ' + p.status + '" style="width:' + pct(p.actualPct) + '"></span><span class="bmark" style="left:' + p.share + '%"></span></div>' +
           '<div class="brow-pct"><strong>' + num(p.actualPct) + NB + '%</strong><span class="chip ' + p.status + '">' + chip[p.status] + "</span></div></div>";
       }).join("");
+      function trow(name, sum, tax) { return "<tr" + (tax ? ' class="goal"' : "") + "><td>" + name + "</td><td>" + rub(sum) + "</td><td>" + rub(tax) + "</td><td>" + rub(sum - tax) + "</td></tr>"; }
+      var taxRows = trow("Карманные деньги, в месяц", F.toKop(b.pocket), 0) + trow("Подработка, в месяц", F.toKop(b.job), jobTax) +
+        trow("Подарки и другое, в месяц", F.toKop(b.other), 0) + (b.prize ? trow("Приз, за год", F.toKop(b.prize), ptax) : "");
+      var scale = jt.kind === "contract" && b.job ? '<div class="table-wrap plain" style="margin-top:12px"><table><thead><tr><th>Доход по договору</th><th>Ставка НДФЛ</th></tr></thead><tbody>' +
+        F.NDFL_SCALE.map(function (st, k) { return "<tr" + (k === jt.step ? ' class="goal"' : "") + "><td>" + SCALE_TEXT[k] + (k === jt.step ? " — ваш доход" : "") + "</td><td>" + num(st[1] * 100) + NB + "%</td></tr>"; }).join("") +
+        '</tbody></table></div><p class="hint" style="margin-top:8px">Прогрессивная шкала (ст.' + NB + "224 НК РФ): повышенную ставку берут только с части дохода сверх порога.</p>" : "";
       return errorsBox(errs) +
-        '<div class="stats three"><div class="stat"><span class="stat-k">Доходы</span><strong>' + rub(income) + '</strong><span class="stat-sub">' + (jobTax ? "в месяц, вычтен НДФЛ " + rub(jobTax) : "в месяц") + "</span></div>" +
+        '<div class="stats three"><div class="stat"><span class="stat-k">Доходы</span><strong>' + rub(income) + '</strong><span class="stat-sub">' + (jobTax ? "в месяц, вычтен налог " + rub(jobTax) : "в месяц") + "</span></div>" +
         '<div class="stat"><span class="stat-k">Распределено</span><strong>' + rub(income - left) + '</strong><span class="stat-sub">нужное, желания и накопления</span></div>' +
         '<div class="stat' + (left < 0 ? " warn" : left > 0 ? " win" : "") + '"><span class="stat-k">Остаток</span><strong>' + rub(left) + '</strong><span class="stat-sub">' +
         (left < 0 ? "тратите больше, чем получаете" : left > 0 ? "можно добавить в накопления" : "всё распределено") + "</span></div></div>" +
         '<div class="card"><h2 class="card-title">Сравнение с правилом 50/30/20</h2><div class="budget-rows">' + rows + "</div>" +
         '<p class="hint">Полоска показывает, какую долю дохода вы тратите, а вертикальная черта — сколько советует правило.</p></div>' +
+        '<div class="card"><h2 class="card-title">Налоги с доходов</h2><div class="table-wrap plain"><table><thead><tr><th>Доход</th><th>Сумма</th><th>Налог</th><th>На руки</th></tr></thead><tbody>' + taxRows + "</tbody></table></div>" +
+        '<p class="note" style="margin-top:12px"><b>Подработка.</b> ' + jobTaxText(b, jt) + "</p>" + scale +
+        '<p class="note" style="margin-top:12px"><b>Приз.</b> ' + prizeText(b, ptax) + "</p>" +
+        '<p class="hint" style="margin-top:8px">Карманные деньги и денежные подарки от людей налогом не облагаются (п.' + NB + "18.1 ст." + NB + "217 НК РФ). Подарки от компаний — без налога до 4" + NB + "000 ₽ за год, дальше 13" + NB + "%.</p></div>" +
         '<div class="card result-card"><p class="plan-k">Цель «' + esc(g.name) + "» на вкладе</p>" +
         '<div class="plan-row"><div><span>откладываете ' + rub(spent.savings) + "</span><strong>" + monthsText(nowM) + "</strong></div>" +
         "<div><span>по правилу 20" + NB + "%: " + rub(parts[2].rec) + '</span><strong class="accent">' + monthsText(ruleM) + "</strong></div></div>" +
+        (prizeNet > 0 ? '<p class="note">Если отложить приз после налога — ' + rub(prizeNet) + ", " + (prizeM === 0 ? "денег на цель хватит <b>сразу</b>." : "цель будет через <b>" + monthsText(prizeM) + "</b>.") + "</p>" : "") +
         '<p class="hint">Цель, ставка вклада и инфляция взяты со страницы «Накопления».</p></div>';
     },
   };
