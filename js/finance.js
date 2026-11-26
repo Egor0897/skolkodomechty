@@ -23,41 +23,12 @@ var Finance = (function () {
      (за 2025 год — 210 000 ₽, за 2026 год — 160 000 ₽). С превышения — 13 %,
      с части превышения больше 2,4 млн ₽ — 15 %. Банк налог не удерживает:
      налоговая присылает уведомление, заплатить нужно до 1 декабря следующего года.
-     В расчётах налог вычитается из вклада раз в 12 месяцев. */
+     Налог есть только на вкладках «Вклады» и «Кредит»: там налог вычитается из вклада раз в 12 месяцев. */
   var TAX = { free: 16000000, step: 240000000, r1: 0.13, r2: 0.15 };   // суммы в копейках
   function setTaxFree(rub) { TAX.free = toKop(Math.max(0, rub)); }
   function interestTax(yearInterest) {     // налог с процентов за один год (копейки)
     var base = Math.max(0, yearInterest - TAX.free), low = Math.min(base, TAX.step);
     return rhu(low * TAX.r1 + (base - low) * TAX.r2);
-  }
-
-  /* НДФЛ С ЗАРПЛАТЫ И ПОДРАБОТКИ ПО ДОГОВОРУ (ст. 224 НК РФ) — прогрессивная шкала за год:
-     до 2,4 млн ₽ — 13 %, от 2,4 до 5 млн — 15 %, от 5 до 20 млн — 18 %, от 20 до 50 млн — 20 %, больше 50 млн — 22 %.
-     Повышенная ставка берётся только с той части дохода, которая больше порога. */
-  var NDFL_SCALE = [[240000000, 0.13], [500000000, 0.15], [2000000000, 0.18], [5000000000, 0.20], [Infinity, 0.22]];   // [до, ставка], копейки за год
-  function incomeTax(yearIncome) {          // доход за год → налог за год (копейки)
-    var tax = 0, prev = 0;
-    for (var k = 0; k < NDFL_SCALE.length && yearIncome > prev; k++) {
-      tax += (Math.min(yearIncome, NDFL_SCALE[k][0]) - prev) * NDFL_SCALE[k][1];
-      prev = NDFL_SCALE[k][0];
-    }
-    return rhu(tax);
-  }
-  function incomeStep(yearIncome) {         // номер ступени шкалы, в которую попал доход
-    for (var k = 0; k < NDFL_SCALE.length; k++) if (yearIncome <= NDFL_SCALE[k][0]) return k;
-    return NDFL_SCALE.length - 1;
-  }
-
-  /* САМОЗАНЯТОСТЬ — налог на профессиональный доход (422-ФЗ): 4 % с оплаты от людей, 6 % — от компаний и ИП.
-     Самозанятым можно быть, пока доход не больше 2,4 млн ₽ в год; если больше — платят НДФЛ по шкале выше. */
-  var NPD = { people: 0.04, firms: 0.06, limit: 240000000 };
-
-  /* ПРИЗЫ И ПОДАРКИ ОТ КОМПАНИЙ (п. 28 ст. 217, ст. 224 НК РФ). Первые 4 000 ₽ за год — без налога.
-     С превышения: призы в рекламных розыгрышах — 35 %, призы на конкурсах и подарки от компаний — 13 %.
-     Денежные подарки от людей (родных, друзей) налогом не облагаются. */
-  var PRIZE = { free: 400000, promo: 0.35, contest: 0.13 };
-  function prizeTax(value, kind) {
-    return rhu(Math.max(0, value - PRIZE.free) * (kind === "promo" ? PRIZE.promo : PRIZE.contest));
   }
 
   /* ЛЬГОТНЫЙ ЗАЁМ ОТ РАБОТОДАТЕЛЯ (ст. 212 НК РФ). Если компания или ИП, где человек работает, даёт в долг
@@ -79,7 +50,7 @@ var Finance = (function () {
   /* 1. НАКОПЛЕНИЯ. Главный алгоритм: проходим месяц за месяцем, как настоящий банк.
      Каждый месяц: банк начисляет проценты, человек кладёт взнос,
      цена цели растёт, и мы проверяем, хватает ли уже денег. */
-  function simulate(price, start, monthly, rate, infl) {
+  function simulate(price, start, monthly, rate, infl, withTax) {   // withTax — вычитать налог с процентов (только «Кредит»)
     var priceKop = toKop(price), pay = toKop(monthly), i = rate / 1200; // годовая ставка → за месяц
     var piggy = toKop(start), deposit = piggy, total = 0;
     var rows = [{ month: 0, piggy: piggy, interest: 0, deposit: deposit, price: priceKop, total: 0, tax: 0 }];
@@ -92,7 +63,7 @@ var Finance = (function () {
       total += interest;
       yearInt += interest;
       if (m % 12 === 0) {                      //    раз в год — налог с процентов сверх необлагаемой суммы
-        var t = interestTax(yearInt);
+        var t = withTax ? interestTax(yearInt) : 0;
         deposit -= t; tax += t;
         maxYear = Math.max(maxYear, yearInt); yearInt = 0;
       }
@@ -174,7 +145,6 @@ var Finance = (function () {
     annuity: annuity, credit: credit, PERIODS: PERIODS, expenseMonthly: expenseMonthly,
     depositOffer: depositOffer, BUDGET_RULE: BUDGET_RULE, inflationYears: inflationYears, rateToBeat: rateToBeat,
     TAX: TAX, setTaxFree: setTaxFree, interestTax: interestTax,
-    NDFL_SCALE: NDFL_SCALE, incomeTax: incomeTax, incomeStep: incomeStep, NPD: NPD,
-    PRIZE: PRIZE, prizeTax: prizeTax, KEY_RATE: KEY_RATE, benefitTax: benefitTax,
+    KEY_RATE: KEY_RATE, benefitTax: benefitTax,
   };
 })();

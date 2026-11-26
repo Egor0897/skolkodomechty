@@ -71,7 +71,7 @@
         { name: "Вклад 3", rate: 9.8, cap: "monthly" },
       ],
     },
-    budget: { pocket: 3000, job: 2000, jobTax: "contract", other: 0, prize: 0, prizeKind: "promo", needs: 1740, wants: 2000, savings: 1000 },
+    budget: { pocket: 3000, job: 2000, other: 0, needs: 2000, wants: 2000, savings: 1000 },
     tax: { free: 160000 },     // проценты по вкладам без налога за год: 1 млн ₽ × макс. ключевая ставка (2026 — 16 %)
     inflation: { price: 60000, inflation: 4, years: 10 },
     rates: { amount: null },   // null — взять цену цели со страницы «Накопления»
@@ -89,8 +89,9 @@
   try {
     var saved = JSON.parse(localStorage.getItem(KEY) || "null");
     if (saved && typeof saved === "object") for (var k in DEFAULTS) if (saved[k]) S[k] = Object.assign(S[k], saved[k]);
-    // бюджет-пример из прошлой версии сайта (без налога с подработки) меняем на новый пример
-    if (JSON.stringify(saved && saved.budget) === '{"pocket":3000,"job":2000,"jobTax":"net","other":0,"needs":2000,"wants":2000,"savings":1000}') S.budget = JSON.parse(JSON.stringify(DEFAULTS.budget));
+    // налогов в «Бюджете» больше нет: убираем их поля из памяти и возвращаем прежний пример
+    ["jobTax", "prize", "prizeKind"].forEach(function (f) { delete S.budget[f]; });
+    if (JSON.stringify(S.budget) === '{"pocket":3000,"job":2000,"other":0,"needs":1740,"wants":2000,"savings":1000}') S.budget.needs = 2000;
   } catch (e) { /* память браузера недоступна — работаем с примерами */ }
   function save() { try { localStorage.setItem(KEY, JSON.stringify(S)); } catch (e) {} }
 
@@ -162,8 +163,8 @@
       '<div class="offers-list">' + rows + "</div>" + SBER_FINE + "</div>";
   }
 
-  /* ---------------------------------------------------------------- налоги
-     НДФЛ с процентов по вкладам считает js/finance.js; здесь — понятное объяснение для страниц. */
+  /* ---------------------------------------------------------------- налоги (только «Кредит» и «Вклады»)
+     НДФЛ считает js/finance.js; здесь — понятное объяснение для страниц. */
   function taxFreeText() { return rub(F.TAX.free) + " в год"; }
   // С какой суммы на вкладе проценты за год станут больше необлагаемой суммы — тогда налог появится сам
   function taxStart(rate, cap, months) {
@@ -195,20 +196,6 @@
     return html + (o.note ? '<p class="note" style="margin-top:10px">' + o.note + "</p>" : "") + (o.extra || "") +
       (o.fine ? '<p class="hint" style="margin-top:8px">' + o.fine + "</p>" : "") + "</div>";
   }
-  // Налог с процентов вклада: блок для «Накоплений» и «Моих целей»
-  function interestTaxBox(title, interest, tax, maxYear, rate, note) {
-    if (tax > 0) return taxBox({ title: title, on: true, before: ["проценты до налога", rub(interest)], tax: ["налог (НДФЛ)", rub(tax)],
-      total: ["проценты после налога", rub(interest - tax)],
-      note: "Налог берут с процентов сверх " + taxFreeText() + ": 13" + NB + "%, а с части больше 2,4" + NB + "млн ₽ — 15" + NB + "%. " + (note || ""),
-      fine: TAX_LAW + " Необлагаемую сумму можно изменить на вкладке «Вклады»." });
-    var start = taxStart(rate, "monthly", 12);
-    return taxBox({ title: title, on: false,
-      start: start ? "Налог начинается, когда проценты за год больше <b>" + rub(F.TAX.free) + "</b>. При ставке " + num(rate, 1) + NB + "% это вклад больше ≈" + NB + "<b>" + rub(start) + "</b>. Тогда налог посчитается сам."
-        : "Налог берут только с процентов по вкладу, а при ставке 0" + NB + "% процентов нет.",
-      meter: start ? { have: maxYear, need: F.TAX.free, text: "Сейчас проценты за год — до " + rub(maxYear) } : null,
-      fine: TAX_LAW });
-  }
-
   /* ================================================================ СТРАНИЦЫ
      У каждой страницы три функции:
        form()    — рисует поля формы;
@@ -255,14 +242,14 @@
       var targetPrice = F.priceAt(F.toKop(g.price), g.inflation, g.target);
       function stat(key, label) {
         var m = key === "piggy" ? p : d, sub = "";
-        if (m) sub = monthLabel(m) + " · " + (key === "piggy" ? "цена " + rub(r.rows[m].price) : "проценты " + rub(r.rows[m].total) + (r.rows[m].tax ? ", налог " + rub(r.rows[m].tax) : ""));
+        if (m) sub = monthLabel(m) + " · " + (key === "piggy" ? "цена " + rub(r.rows[m].price) : "проценты " + rub(r.rows[m].total));
         else if (m === null) sub = key === "piggy" ? "цена растёт быстрее, чем копилка" : "взноса не хватает";
         return '<div class="stat' + (win === key ? " win" : "") + '"><span class="stat-k"><i class="key ' + key + '"></i>' + label +
           (win === key ? "<em>быстрее</em>" : "") + "</span><strong>" + monthsText(m) + '</strong><span class="stat-sub">' + sub + "</span></div>";
       }
       var table = r.rows.slice(1).map(function (x) {
         return "<tr" + (x.month === d ? ' class="goal"' : "") + "><td>" + x.month + (x.month === d ? " ✓" : "") + "</td><td>" + rub2(x.piggy) +
-          "</td><td>" + rub2(x.interest) + "</td><td>" + rub2(x.tax) + "</td><td>" + rub2(x.deposit) + "</td><td>" + rub2(x.price) + "</td></tr>";
+          "</td><td>" + rub2(x.interest) + "</td><td>" + rub2(x.deposit) + "</td><td>" + rub2(x.price) + "</td></tr>";
       }).join("");
       return errorsBox(errs) +
         '<div class="stats">' + stat("piggy", "Копилка") + stat("deposit", "Вклад") + "</div>" +
@@ -271,9 +258,7 @@
         '<div class="plan-row"><div><span>на вклад</span><strong>' + rub(need[0]) + "</strong></div><div><span>в копилку</span><strong>" + rub(need[1]) +
         "</strong></div><div><span>цена к этому времени</span><strong>" + rub(targetPrice) + "</strong></div></div>" +
         '<p class="hint">Сколько откладывать каждый месяц, чтобы успеть.</p></div>' +
-        interestTaxBox("Налог с процентов по вкладу", (d ? r.rows[d] : r.rows[r.rows.length - 1]).total, d ? r.rows[d].tax : r.tax, r.maxYear, g.rate,
-          d ? "Налог уже вычтен из вклада: к покупке на вкладе будет " + rub(r.rows[d].deposit) + "." : "Налог уже вычтен из вклада в расчёте.") +
-        '<details class="months"><summary>Расчёт по месяцам</summary><div class="table-wrap"><table><thead><tr><th>Месяц</th><th>Копилка</th><th>Проценты</th><th>Налог всего</th><th>Вклад</th><th>Цена цели</th></tr></thead><tbody>' +
+        '<details class="months"><summary>Расчёт по месяцам</summary><div class="table-wrap"><table><thead><tr><th>Месяц</th><th>Копилка</th><th>Проценты</th><th>Вклад</th><th>Цена цели</th></tr></thead><tbody>' +
         table + "</tbody></table></div></details>";
     },
   };
@@ -370,7 +355,7 @@
       var bars = [], saving = null;
       if (c.amount > 0) {
         // что, если ту же сумму платежа каждый месяц класть на вклад?
-        var sim = F.simulate(c.amount, 0, res.payment / 100, g.rate, g.inflation);
+        var sim = F.simulate(c.amount, 0, res.payment / 100, g.rate, g.inflation, true);   // true — с налогом с процентов
         bars.push([c.lender === "bank" ? "Купить сразу в кредит" : "Купить сразу в долг", res.total]);
         if (sim.dm) {
           var row = sim.rows[sim.dm], own = row.price - row.total;
@@ -531,55 +516,6 @@
 
   /* ---------- 5. Бюджет ---------- */
   var BUDGET_FIELDS = [["pocket", "Карманные деньги"], ["job", "Подработка"], ["other", "Подарки и другое"], ["needs", "Нужное"], ["wants", "Желания"], ["savings", "Откладываю на цель"]];
-  var JOB_KINDS = [["contract", "по договору — НДФЛ сам"], ["npd_people", "самозанятость, люди — 4" + NB + "%"],
-    ["npd_firms", "самозанятость, фирмы — 6" + NB + "%"], ["net", "на руки — налог удержан"]];
-  var PRIZE_KINDS = [["promo", "розыгрыш, реклама — 35" + NB + "%"], ["contest", "конкурс, подарок — 13" + NB + "%"]];
-  var SCALE_TEXT = ["до 2,4" + NB + "млн ₽ в год · до 200" + NB + "000 ₽ в месяц", "от 2,4 до 5" + NB + "млн ₽ · до 416" + NB + "667 ₽ в месяц",
-    "от 5 до 20" + NB + "млн ₽ · до 1,67" + NB + "млн ₽ в месяц", "от 20 до 50" + NB + "млн ₽ · до 4,17" + NB + "млн ₽ в месяц", "больше 50" + NB + "млн ₽ в год"];
-  function selField(page, name, label, list, value) {
-    return '<label class="field wide" for="' + page + "-" + name + '"><span class="label">' + label + '</span><span class="input sel"><select id="' + page + "-" + name + '" name="' + name + '">' +
-      list.map(function (o) { return '<option value="' + o[0] + '"' + (value === o[0] ? " selected" : "") + ">" + o[1] + "</option>"; }).join("") + "</select></span></label>";
-  }
-  function pick(list, v, def) { return list.some(function (o) { return o[0] === v; }) ? v : def; }
-  // Налог с подработки за месяц: выбирает правило сам по виду подработки и сумме
-  function jobTaxCalc(b) {
-    var job = F.toKop(b.job), year = job * 12, kind = b.jobTax === "gross" ? "contract" : b.jobTax, over = false;
-    if (kind === "npd_people" || kind === "npd_firms") {
-      if (year <= F.NPD.limit) return { kind: kind, year: year, tax: F.rhu(job * F.NPD[kind === "npd_people" ? "people" : "firms"]) };
-      kind = "contract"; over = true;                       // доход больше 2,4 млн ₽ в год — самозанятым быть нельзя
-    }
-    if (kind === "contract") return { kind: kind, year: year, over: over, step: F.incomeStep(year), tax: F.rhu(F.incomeTax(year) / 12) };
-    return { kind: "net", year: year, tax: 0 };
-  }
-  function jobTaxBox(b, jt) {
-    var job = F.toKop(b.job), title = "Налог с подработки";
-    if (!job) return taxBox({ title: title, on: false, start: "Подработки нет. С подработки по договору налог берут с первого рубля — 13" + NB + "%, а самозанятые платят 4" + NB + "% или 6" + NB + "%. Впишите сумму — налог посчитается сам." });
-    if (jt.kind === "net") return taxBox({ title: title, on: false, chip: "уже удержан", start: "Вы вписали сумму на руки: работодатель уже удержал НДФЛ, второй раз его не вычитаем. Чтобы сайт посчитал налог сам, выберите «по договору» и впишите сумму до налога." });
-    if (jt.kind !== "contract") {
-      var r = jt.kind === "npd_people" ? 4 : 6;
-      return taxBox({ title: title, on: true, before: ["подработка в месяц", rub(job)], tax: ["налог самозанятого " + r + NB + "%", rub(jt.tax)], total: ["на руки в месяц", rub(job - jt.tax)],
-        note: "Самозанятым можно быть, пока доход не больше <b>2,4" + NB + "млн ₽ в год</b> (200" + NB + "000 ₽ в месяц). У вас за год — " + rub(jt.year) + ". Если впишете больше, налог сам посчитается по шкале НДФЛ.",
-        fine: "Налог на профессиональный доход (422-ФЗ). Он приходит в приложении «Мой налог», заплатить нужно до 28-го числа следующего месяца. Самозанятым можно стать с 14 лет с письменного согласия родителей." });
-    }
-    var avg = jt.year ? jt.tax * 12 / jt.year * 100 : 0, step = jt.step, sc = F.NDFL_SCALE;
-    var next = step < sc.length - 1
-      ? "Ставка " + num(sc[step + 1][1] * 100) + NB + "% начнётся с дохода больше <b>" + rub(F.rhu(sc[step][0] / 12)) + " в месяц</b> (" + rub(sc[step][0]) + " в год) — и только для части сверх порога."
-      : "Это самая высокая ставка: 22" + NB + "% с части дохода больше 50" + NB + "млн ₽ в год.";
-    var table = '<div class="table-wrap plain" style="margin-top:12px"><table><thead><tr><th>Доход по договору</th><th>Ставка НДФЛ</th></tr></thead><tbody>' +
-      sc.map(function (st, k) { return "<tr" + (k === step ? ' class="goal"' : "") + "><td>" + SCALE_TEXT[k] + (k === step ? " — ваш доход" : "") + "</td><td>" + num(st[1] * 100) + NB + "%</td></tr>"; }).join("") + "</tbody></table></div>";
-    return taxBox({ title: title, on: true, before: ["подработка в месяц", rub(job)], tax: ["НДФЛ " + (step ? "в среднем " + num(avg, 1) : "13") + NB + "%", rub(jt.tax)], total: ["на руки в месяц", rub(job - jt.tax)],
-      note: (jt.over ? "<b>Доход больше 2,4" + NB + "млн ₽ в год — самозанятым быть нельзя, поэтому налог посчитан по шкале НДФЛ.</b> " : "") + next,
-      extra: table, fine: "Прогрессивная шкала НДФЛ (ст." + NB + "224 НК РФ). Налог удерживает работодатель до выплаты." });
-  }
-  function prizeTaxBox(b, ptax) {
-    var prize = F.toKop(b.prize), title = "Налог с приза", rate = b.prizeKind === "promo" ? 35 : 13;
-    var fine = "Карманные деньги и денежные подарки от людей налогом не облагаются при любой сумме (п." + NB + "18.1 ст." + NB + "217 НК РФ). Призы и подарки от компаний — п." + NB + "28 ст." + NB + "217 и ст." + NB + "224 НК РФ.";
-    if (!ptax) return taxBox({ title: title, on: false,
-      start: "Налог начинается с призов больше <b>4" + NB + "000 ₽ за год</b>. С суммы сверх 4" + NB + "000 ₽: розыгрыш или рекламная акция — 35" + NB + "%, конкурс или подарок от компании — 13" + NB + "%. Впишите приз — налог посчитается сам.",
-      meter: { have: prize, need: F.PRIZE.free, text: "Сейчас призов " + rub(prize) }, fine: fine });
-    return taxBox({ title: title, on: true, before: ["приз за год", rub(prize)], tax: ["налог " + rate + NB + "% с " + rub(prize - F.PRIZE.free), rub(ptax)], total: ["на руки", rub(prize - ptax)],
-      note: "Первые 4" + NB + "000 ₽ за год — без налога. Деньгами налог удерживает организатор, а за вещь налоговая пришлёт уведомление — заплатить до 1 декабря следующего года.", fine: fine });
-  }
   PAGES.budget = {
     form: function () {
       var b = S.budget;
@@ -587,29 +523,18 @@
         numField("bud", "pocket", "Карманные деньги", b.pocket, "₽", true) +
         numField("bud", "job", "Подработка", b.job, "₽") +
         numField("bud", "other", "Подарки и другое", b.other, "₽") +
-        selField("bud", "jobTax", "Как оформлена подработка", JOB_KINDS, b.jobTax === "gross" ? "contract" : b.jobTax) +
-        '<p class="form-group">Приз за год</p>' +
-        numField("bud", "prize", "Приз или подарок от компании", b.prize, "₽", true) +
-        selField("bud", "prizeKind", "Откуда приз", PRIZE_KINDS, b.prizeKind) +
         '<p class="form-group">Расходы в месяц</p>' +
         numField("bud", "needs", "Нужное", b.needs, "₽") +
         numField("bud", "wants", "Желания", b.wants, "₽") +
         numField("bud", "savings", "Откладываю на цель", b.savings, "₽", true) +
-        '<p class="hint">Нужное — проезд, обеды, школьные вещи. Желания — развлечения, игры, кафе, подписки. Числа — пример. ' +
-        "Налоги считаются сами: с подработки по договору — по шкале НДФЛ (13" + NB + "%, а с больших сумм — до 22" + NB + "%), с приза — с суммы больше 4" + NB + "000 ₽. " +
-        "Карманные деньги и подарки от родных и друзей налогом не облагаются.</p>";
+        '<p class="hint">Нужное — проезд, обеды, школьные вещи. Желания — развлечения, игры, кафе, подписки. Числа — пример.</p>';
     },
     read: function (f, e) {
-      BUDGET_FIELDS.forEach(function (p) { S.budget[p[0]] = parseNum(val(f, p[0]), DEFAULTS.budget[p[0]], 0, 1e9, false, e, p[1]); });
-      S.budget.prize = parseNum(val(f, "prize"), 0, 0, 1e9, false, e, "Приз");
-      S.budget.jobTax = pick(JOB_KINDS, val(f, "jobTax"), "contract");
-      S.budget.prizeKind = pick(PRIZE_KINDS, val(f, "prizeKind"), "promo");
+      BUDGET_FIELDS.forEach(function (p) { S.budget[p[0]] = parseNum(val(f, p[0]), DEFAULTS.budget[p[0]], 0, 1e7, false, e, p[1]); });
     },
     results: function (errs) {
       var b = S.budget, g = goalCtx();
-      var jt = jobTaxCalc(b), jobTax = jt.tax;                      // налог с подработки за месяц
-      var ptax = F.prizeTax(F.toKop(b.prize), b.prizeKind), prizeNet = F.toKop(b.prize) - ptax;
-      var income = F.toKop(b.pocket + b.job + b.other) - jobTax;
+      var income = F.toKop(b.pocket + b.job + b.other);
       var spent = { needs: F.toKop(b.needs), wants: F.toKop(b.wants), savings: F.toKop(b.savings) };
       var left = income - spent.needs - spent.wants - spent.savings;
       var parts = F.BUDGET_RULE.map(function (r) {
@@ -621,7 +546,6 @@
       });
       var nowM = F.simulate(g.price, g.start, spent.savings / 100, g.rate, g.inflation).dm;
       var ruleM = F.simulate(g.price, g.start, parts[2].rec / 100, g.rate, g.inflation).dm;
-      var prizeM = prizeNet > 0 ? F.simulate(g.price, g.start + prizeNet / 100, spent.savings / 100, g.rate, g.inflation).dm : null;
       var chip = { ok: "в норме", high: "больше нормы", low: "меньше нормы" };
       var rows = parts.map(function (p) {
         return '<div class="brow"><div class="brow-name"><strong>' + p.label + "</strong><span>" + rub(p.actual) + " · норма " + rub(p.rec) + "</span></div>" +
@@ -629,17 +553,15 @@
           '<div class="brow-pct"><strong>' + num(p.actualPct) + NB + '%</strong><span class="chip ' + p.status + '">' + chip[p.status] + "</span></div></div>";
       }).join("");
       return errorsBox(errs) +
-        '<div class="stats three"><div class="stat"><span class="stat-k">Доходы</span><strong>' + rub(income) + '</strong><span class="stat-sub">' + (jobTax ? "в месяц, вычтен налог " + rub(jobTax) : "в месяц") + "</span></div>" +
+        '<div class="stats three"><div class="stat"><span class="stat-k">Доходы</span><strong>' + rub(income) + '</strong><span class="stat-sub">в месяц</span></div>' +
         '<div class="stat"><span class="stat-k">Распределено</span><strong>' + rub(income - left) + '</strong><span class="stat-sub">нужное, желания и накопления</span></div>' +
         '<div class="stat' + (left < 0 ? " warn" : left > 0 ? " win" : "") + '"><span class="stat-k">Остаток</span><strong>' + rub(left) + '</strong><span class="stat-sub">' +
         (left < 0 ? "тратите больше, чем получаете" : left > 0 ? "можно добавить в накопления" : "всё распределено") + "</span></div></div>" +
         '<div class="card"><h2 class="card-title">Сравнение с правилом 50/30/20</h2><div class="budget-rows">' + rows + "</div>" +
         '<p class="hint">Полоска показывает, какую долю дохода вы тратите, а вертикальная черта — сколько советует правило.</p></div>' +
-        jobTaxBox(b, jt) + prizeTaxBox(b, ptax) +
         '<div class="card result-card"><p class="plan-k">Цель «' + esc(g.name) + "» на вкладе</p>" +
         '<div class="plan-row"><div><span>откладываете ' + rub(spent.savings) + "</span><strong>" + monthsText(nowM) + "</strong></div>" +
         "<div><span>по правилу 20" + NB + "%: " + rub(parts[2].rec) + '</span><strong class="accent">' + monthsText(ruleM) + "</strong></div></div>" +
-        (prizeNet > 0 ? '<p class="note">Если отложить приз после налога — ' + rub(prizeNet) + ", " + (prizeM === 0 ? "денег на цель хватит <b>сразу</b>." : "цель будет через <b>" + monthsText(prizeM) + "</b>.") + "</p>" : "") +
         '<p class="hint">Цель, ставка вклада и инфляция взяты со страницы «Накопления».</p></div>';
     },
   };
@@ -651,8 +573,7 @@
       return numField("inf", "price", "Цена сейчас", v.price, "₽", true) +
         numField("inf", "inflation", "Инфляция", v.inflation, "% год.") +
         numField("inf", "years", "Лет", v.years, "лет") +
-        '<p class="hint">Инфляцию за прошлые годы публикует Росстат, а цель Банка России — около 4' + NB + "% в год. " +
-        "Если проценты по вкладам за год больше " + taxFreeText() + ", с превышения платят налог 13" + NB + "% — тогда ставка вклада нужна чуть выше.</p>";
+        '<p class="hint">Инфляцию за прошлые годы публикует Росстат, а цель Банка России — около 4' + NB + "% в год.</p>";
     },
     read: function (f, e) {
       var v = S.inflation;
@@ -745,7 +666,6 @@
         '<p class="fine">Официальный курс ЦБ на день. В банке и обменнике валюту продают дороже, а покупают дешевле.</p></div>' +
         '<div class="card"><p class="plan-k">Важно знать</p><p class="note">Цена криптовалюты может за сутки измениться на 5–10' + NB + "% и больше, поэтому копить на мечту в криптовалюте рискованно. " +
         "В России криптовалютой нельзя расплачиваться за товары и услуги (закон №" + NB + "259-ФЗ), а биржи работают только с совершеннолетними. " +
-        "С дохода от продажи криптовалюты платят НДФЛ (13–15" + NB + "%). " +
         "Для накоплений надёжнее рубли на вкладе — посчитайте на странице «Вклады».</p>" +
         '<p class="fine">Данные: Банк России (через cbr-xml-daily.ru), биржа Binance, CoinGecko. Не является инвестиционной рекомендацией.</p></div>';
     },
@@ -800,13 +720,12 @@
       return true;   // форму нужно очистить
     },
     results: function (errs) {
-      var g = S.goal, list = S.goals.list, tx = { interest: 0, tax: 0, maxYear: 0 };   // налог с процентов по всем целям
+      var g = S.goal, list = S.goals.list;
       var total = list.reduce(function (s, x) { return s + Math.min(x.saved, x.price); }, 0);
       var soon = null;
       var rows = list.map(function (x, i) {
         var p = x.price ? Math.min(100, x.saved / x.price * 100) : 0, done = x.saved >= x.price;
-        var sim = done ? null : F.simulate(x.price, x.saved, x.monthly, g.rate, g.inflation), m = done ? 0 : sim.dm;
-        if (sim) { var at = sim.rows[m === null ? sim.rows.length - 1 : m]; tx.interest += at.total; tx.tax += at.tax; tx.maxYear = Math.max(tx.maxYear, sim.maxYear); }
+        var m = done ? 0 : F.simulate(x.price, x.saved, x.monthly, g.rate, g.inflation).dm;
         if (!done && m !== null && (soon === null || m < soon.m)) soon = { m: m, name: x.name };
         var when = done ? '<span class="done-chip">цель достигнута</span>' : m === null ? "взноса не хватает" : "через <b>" + m + NB + "мес.</b> · " + monthLabel(m);
         return '<div class="g-row' + (done ? " done" : "") + '"><p class="g-name"><i style="--c:' + GOAL_COLORS[i % GOAL_COLORS.length] + '">' + esc(x.name.charAt(0).toUpperCase()) +
@@ -822,8 +741,7 @@
         '<div class="stats three"><div class="stat"><span class="stat-k">Целей</span><strong>' + list.length + '</strong><span class="stat-sub">' + list.filter(function (x) { return x.saved >= x.price; }).length + " достигнуто</span></div>" +
         '<div class="stat"><span class="stat-k">Накоплено всего</span><strong>' + rub(F.toKop(total)) + '</strong><span class="stat-sub">на все цели</span></div>' +
         '<div class="stat win"><span class="stat-k">Ближайшая цель</span><strong>' + (soon ? soon.m + NB + "мес." : "—") + '</strong><span class="stat-sub">' + (soon ? esc(soon.name) : "добавьте цель") + "</span></div></div>" +
-        (list.length ? '<div class="card"><h2 class="card-title">Мои цели</h2><div class="goals">' + rows + "</div></div>" +
-          interestTaxBox("Налог с процентов по вкладам", tx.interest, tx.tax, tx.maxYear, g.rate, "Налог уже учтён в сроках целей.")
+        (list.length ? '<div class="card"><h2 class="card-title">Мои цели</h2><div class="goals">' + rows + "</div></div>"
           : '<div class="card"><p class="verdict">Пока нет целей. Добавьте первую в форме слева.</p></div>');
     },
     onClick: function (ev, rerender) {
